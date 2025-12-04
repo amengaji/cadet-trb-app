@@ -1,15 +1,47 @@
 // src/screens/SeaServiceScreen.tsx
 import React from "react";
-import { View, Text, StyleSheet, Platform, ScrollView } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Platform,
+  ScrollView,
+  TouchableOpacity,
+} from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { COLORS } from "../../theme";
+import type { RootStackParamList } from "../navigation/RootNavigator";
+
+type SeaServiceNavProp = NativeStackNavigationProp<
+  RootStackParamList,
+  "SeaService"
+>;
 
 export const SeaServiceScreen: React.FC = () => {
+  const navigation = useNavigation<SeaServiceNavProp>();
+
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("Home");
+    }
+  };
+
   return (
     <View style={styles.root}>
-      {/* Header reused for now */}
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.appTitle}>Cadet TRB</Text>
-        <Text style={styles.appSubtitle}>Sea Service</Text>
+        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
+          <Text style={styles.backArrow}>←</Text>
+          <Text style={styles.backText}>Home</Text>
+        </TouchableOpacity>
+
+        <View style={styles.headerTitles}>
+          <Text style={styles.appTitle}>Cadet TRB</Text>
+          <Text style={styles.appSubtitle}>Sea Service</Text>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -39,20 +71,40 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: Platform.OS === "android" ? 40 : 20,
-    paddingBottom: 16,
+    paddingBottom: 12,
     paddingHorizontal: 24,
     backgroundColor: COLORS.primary,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(0,0,0,0.15)",
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 4,
+    paddingRight: 16,
+  },
+  backArrow: {
+    fontSize: 18,
+    color: COLORS.textOnPrimary,
+    marginRight: 4,
+  },
+  backText: {
+    fontSize: 14,
+    color: COLORS.textOnPrimary,
+  },
+  headerTitles: {
+    flex: 1,
   },
   appTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "700",
     color: COLORS.textOnPrimary,
   },
   appSubtitle: {
-    marginTop: 4,
-    fontSize: 14,
+    marginTop: 2,
+    fontSize: 13,
     color: "rgba(255,255,255,0.85)",
   },
   content: {
