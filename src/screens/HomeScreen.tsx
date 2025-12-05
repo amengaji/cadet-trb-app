@@ -14,13 +14,10 @@ import { COLORS } from "../../theme";
 import { ActionCard } from "../components/ActionCard";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 
-type HomeScreenNavProp = NativeStackNavigationProp<
-  RootStackParamList,
-  "Home"
->;
+type HomeNavProp = NativeStackNavigationProp<RootStackParamList, "Home">;
 
 export const HomeScreen: React.FC = () => {
-  const navigation = useNavigation<HomeScreenNavProp>();
+  const navigation = useNavigation<HomeNavProp>();
 
   return (
     <View style={styles.root}>
@@ -41,12 +38,6 @@ export const HomeScreen: React.FC = () => {
         {/* Quick actions stacked vertically */}
         <View style={styles.actionsColumn}>
           <ActionCard
-            title="Cadet Profile"
-            description="Manage your personal, academy and emergency contact details."
-            onPress={() => navigation.navigate("Profile")}
-          />
-          <View style={styles.actionGap} />
-          <ActionCard
             title="(1) Sea Service"
             description="View and record sign-on / sign-off and voyage details."
             onPress={() => navigation.navigate("SeaService")}
@@ -63,21 +54,27 @@ export const HomeScreen: React.FC = () => {
             description="Log daily activities and bridge/engine watches."
             onPress={() => navigation.navigate("Diary")}
           />
+          <View style={styles.actionGap} />
+          <ActionCard
+            title="(4) Cadet Profile"
+            description="Maintain your personal and academy details for the TRB."
+            onPress={() => navigation.navigate("CadetProfile")}
+          />
         </View>
 
-        {/* Info card */}
+        {/* Info card, same width as action cards */}
         <View style={styles.placeholderCard}>
           <Text style={styles.cardTitle}>Next Steps</Text>
           <Text style={styles.cardText}>
-            • We will add structured TRB tasks linked to STCW{"\n"}
-            • Then we will connect diary & watchkeeping logs{"\n"}
-            • Finally, we will plug in evidence, signatures and PDF export
+            • We will add evidence & signatures to tasks{"\n"}
+            • Then we will add officer / Master review workflows{"\n"}
+            • Finally, we will plug in cloud sync and PDF export
           </Text>
         </View>
 
         <Text style={styles.footerNote}>
-          For now, this is still an offline-first prototype. All data is stored
-          locally in SQLite on your device.
+          For now, these sections are local-only and offline-first. This mirrors
+          a paper TRB, but on a tablet or phone.
         </Text>
       </ScrollView>
     </View>
@@ -111,6 +108,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
     paddingBottom: 40,
+    maxWidth: 900,
+    width: "100%",
+    alignSelf: "center",
   },
   welcome: {
     fontSize: 22,
@@ -137,7 +137,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    maxWidth: 700,
+    // No maxWidth here – it will match the content width (like ActionCards)
+    marginBottom: 12,
   },
   cardTitle: {
     fontSize: 16,
@@ -151,7 +152,7 @@ const styles = StyleSheet.create({
     color: COLORS.textOnDark,
   },
   footerNote: {
-    marginTop: 16,
+    marginTop: 8,
     fontSize: 12,
     color: COLORS.textMuted,
   },

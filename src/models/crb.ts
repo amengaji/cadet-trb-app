@@ -84,3 +84,29 @@ export type TrainingTaskWithProgress = {
   template: TrainingTaskTemplate;
   progress: TrainingTaskProgress;
 };
+
+// ----- Diary & Watchkeeping -----
+
+export type DiaryEntryType = "DAILY" | "BRIDGE" | "ENGINE";
+
+export type DiaryEntry = {
+  id: string;
+  cadetId: string;
+  deploymentId?: string;
+  date: string; // YYYY-MM-DD
+  entryType: DiaryEntryType;
+  timeStart?: string; // HH:mm
+  timeEnd?: string;   // HH:mm
+  summary?: string;
+  positionLat?: string;
+  positionLon?: string;
+  courseOverGroundDeg?: number;
+  speedOverGroundKnots?: number;
+  weatherSummary?: string;
+  role?: string;
+  steeringMinutes?: number;
+  machineryMonitored?: string;
+  remarks?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
