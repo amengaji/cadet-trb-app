@@ -102,6 +102,11 @@ export interface SeaServiceDeployment {
   cadetId: string;
   vesselId: string;
 
+  // Optional vessel metadata for display (joined from vessel table)
+  vesselName?: string;
+  vesselFlagState?: string;
+  vesselType?: VesselType;
+
   role: SeaServiceRole; // CADET / TRAINEE_ENGINEER / etc.
 
   signOnDate: string; // ISO date
@@ -124,6 +129,7 @@ export interface SeaServiceDeployment {
   createdAt?: string;
   updatedAt?: string;
 }
+
 
 // ----------------------
 // Task / Competence Models
