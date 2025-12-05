@@ -10,7 +10,7 @@ import { CadetProfileScreen } from "../screens/CadetProfileScreen";
 
 export type RootStackParamList = {
   Home: undefined;
-  Profile: undefined;
+  CadetProfile: undefined;
   SeaService: undefined;
   Tasks: undefined;
   Diary: undefined;
@@ -22,11 +22,20 @@ export const RootNavigator: React.FC = () => {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerShown: false, // each screen renders its own custom header
+        headerShown: false, // we use custom headers inside screens
       }}
     >
       <Stack.Screen name="Home" component={HomeScreen} />
-      <Stack.Screen name="Profile" component={CadetProfileScreen} />
+
+      <Stack.Screen
+        name="CadetProfile"
+        component={CadetProfileScreen}
+        options={{
+          presentation: "modal",
+          animation: "slide_from_bottom",
+        }}
+      />
+
       <Stack.Screen name="SeaService" component={SeaServiceScreen} />
       <Stack.Screen name="Tasks" component={TasksScreen} />
       <Stack.Screen name="Diary" component={DiaryScreen} />

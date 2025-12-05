@@ -14,7 +14,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import DateTimePicker from "@react-native-community/datetimepicker";
-
+import { Feather } from '@expo/vector-icons';
 import { COLORS } from "../../theme";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { getAll, run } from "../db/sqlite";
@@ -46,19 +46,29 @@ export const DiaryScreen: React.FC = () => {
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [filterType, setFilterType] = useState<TypeFilter>("ALL");
 
-  // New entry state
+  // Are we editing an existing entry?
+  const [editingEntry, setEditingEntry] = useState<DiaryEntry | null>(null);
+
+  // ----- New / edit entry core state -----
+
   const [newType, setNewType] = useState<DiaryEntryType>("DAILY");
 
-  // Date state + native picker
+  // Date + picker
   const [newDate, setNewDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
   const [dateObj, setDateObj] = useState<Date>(() => new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  // Time / summary / watch details
+  // Time + pickers
   const [newTimeStart, setNewTimeStart] = useState("");
   const [newTimeEnd, setNewTimeEnd] = useState("");
+  const [timeStartObj, setTimeStartObj] = useState<Date | null>(null);
+  const [timeEndObj, setTimeEndObj] = useState<Date | null>(null);
+  const [showStartTimePicker, setShowStartTimePicker] = useState(false);
+  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+
+  // Textual fields
   const [newSummary, setNewSummary] = useState("");
   const [newCourse, setNewCourse] = useState("");
   const [newSpeed, setNewSpeed] = useState("");
@@ -68,16 +78,18 @@ export const DiaryScreen: React.FC = () => {
   const [newMachineryMonitored, setNewMachineryMonitored] = useState("");
   const [newRemarks, setNewRemarks] = useState("");
 
-  // Lat / Long structured (so cadet never types "°")
-  const [latDeg, setLatDeg] = useState("");
-  const [latMin, setLatMin] = useState("");
+  // Lat / Lon body (digits only) + hemisphere toggles
+  // Latitude: DDMM.m (e.g. 0115.0) -> display as 01°15.0 in the box
+  const [latBody, setLatBody] = useState("");
   const [latHem, setLatHem] = useState<"N" | "S">("N");
 
-  const [lonDeg, setLonDeg] = useState("");
-  const [lonMin, setLonMin] = useState("");
+  // Longitude: DDDMM.m (e.g. 10345.0) -> display as 103°45.0
+  const [lonBody, setLonBody] = useState("");
   const [lonHem, setLonHem] = useState<"E" | "W">("E");
 
   const [saving, setSaving] = useState(false);
+
+  // ----- Navigation -----
 
   const handleBack = () => {
     if (navigation.canGoBack()) {
@@ -86,6 +98,8 @@ export const DiaryScreen: React.FC = () => {
       navigation.navigate("Home");
     }
   };
+
+  // ----- Load entries from DB -----
 
   useEffect(() => {
     let isMounted = true;
@@ -121,6 +135,8 @@ export const DiaryScreen: React.FC = () => {
     setEntries(loaded);
   };
 
+  // ----- Derived values -----
+
   const filteredEntries = useMemo(() => {
     if (filterType === "ALL") return entries;
     return entries.filter((e) => e.entryType === filterType);
@@ -145,10 +161,9 @@ export const DiaryScreen: React.FC = () => {
     return { totalEntries: total, bridgeHours: bridge, engineHours: engine };
   }, [entries]);
 
-  const onDateChange = (
-    _event: any,
-    selectedDate?: Date | undefined
-  ) => {
+  // ----- Date & time picker callbacks -----
+
+  const onDateChange = (_event: any, selectedDate?: Date | undefined) => {
     if (Platform.OS !== "ios") {
       setShowDatePicker(false);
     }
@@ -160,6 +175,114 @@ export const DiaryScreen: React.FC = () => {
     }
   };
 
+  const onStartTimeChange = (_event: any, selected?: Date | undefined) => {
+    if (Platform.OS !== "ios") {
+      setShowStartTimePicker(false);
+    }
+    if (selected) {
+      setTimeStartObj(selected);
+      setNewTimeStart(formatTime(selected));
+    }
+  };
+
+  const onEndTimeChange = (_event: any, selected?: Date | undefined) => {
+    if (Platform.OS !== "ios") {
+      setShowEndTimePicker(false);
+    }
+    if (selected) {
+      setTimeEndObj(selected);
+      setNewTimeEnd(formatTime(selected));
+    }
+  };
+
+  // ----- Edit existing entry -----
+
+  const startEditing = (entry: DiaryEntry) => {
+    setEditingEntry(entry);
+
+    setNewType(entry.entryType);
+    setNewDate(entry.date);
+    const parsedDate = new Date(entry.date);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      setDateObj(parsedDate);
+    }
+
+    setNewTimeStart(entry.timeStart ?? "");
+    setNewTimeEnd(entry.timeEnd ?? "");
+    setTimeStartObj(entry.timeStart ? buildDateFromTime(entry.timeStart) : null);
+    setTimeEndObj(entry.timeEnd ? buildDateFromTime(entry.timeEnd) : null);
+
+    setNewSummary(entry.summary ?? "");
+    setNewCourse(
+      entry.courseOverGroundDeg != null
+        ? String(entry.courseOverGroundDeg)
+        : ""
+    );
+    setNewSpeed(
+      entry.speedOverGroundKnots != null
+        ? String(entry.speedOverGroundKnots)
+        : ""
+    );
+    setNewWeather(entry.weatherSummary ?? "");
+    setNewRole(entry.role ?? "");
+    setNewSteeringMinutes(
+      entry.steeringMinutes != null ? String(entry.steeringMinutes) : ""
+    );
+    setNewMachineryMonitored(entry.machineryMonitored ?? "");
+    setNewRemarks(entry.remarks ?? "");
+
+    if (entry.positionLat) {
+      const parsed = parseLatBodyFromDisplay(entry.positionLat);
+      if (parsed) {
+        setLatBody(parsed.body);
+        setLatHem(parsed.hem);
+      } else {
+        setLatBody("");
+        setLatHem("N");
+      }
+    } else {
+      setLatBody("");
+      setLatHem("N");
+    }
+
+    if (entry.positionLon) {
+      const parsed = parseLonBodyFromDisplay(entry.positionLon);
+      if (parsed) {
+        setLonBody(parsed.body);
+        setLonHem(parsed.hem);
+      } else {
+        setLonBody("");
+        setLonHem("E");
+      }
+    } else {
+      setLonBody("");
+      setLonHem("E");
+    }
+  };
+
+  const cancelEditing = () => {
+    setEditingEntry(null);
+
+    setNewTimeStart("");
+    setNewTimeEnd("");
+    setTimeStartObj(null);
+    setTimeEndObj(null);
+    setNewSummary("");
+    setNewCourse("");
+    setNewSpeed("");
+    setNewWeather("");
+    setNewRole("");
+    setNewSteeringMinutes("");
+    setNewMachineryMonitored("");
+    setNewRemarks("");
+    setLatBody("");
+    setLatHem("N");
+    setLonBody("");
+    setLonHem("E");
+  };
+
+  // ----- Save (insert or update) -----
+
   const handleSaveNewEntry = async () => {
     if (!newDate.trim()) {
       Alert.alert("Missing date", "Please select a date.");
@@ -170,16 +293,39 @@ export const DiaryScreen: React.FC = () => {
       if (!newTimeStart.trim() || !newTimeEnd.trim()) {
         Alert.alert(
           "Missing time",
-          "Please enter start and end time for watch entries (HH:MM)."
+          "Please select start and end time for watch entries."
         );
         return;
+      }
+    }
+
+    // Build + validate Lat / Lon for bridge entries
+    let positionLat: string | null = null;
+    let positionLon: string | null = null;
+
+    if (newType === "BRIDGE") {
+      if (latBody.trim()) {
+        const res = buildLatStringFromBody(latBody, latHem);
+        if (!res.ok) {
+          Alert.alert("Invalid latitude", res.message);
+          return;
+        }
+        positionLat = res.value!;
+      }
+
+      if (lonBody.trim()) {
+        const res = buildLonStringFromBody(lonBody, lonHem);
+        if (!res.ok) {
+          Alert.alert("Invalid longitude", res.message);
+          return;
+        }
+        positionLon = res.value!;
       }
     }
 
     try {
       setSaving(true);
       const now = new Date().toISOString();
-      const id = `diary-${Date.now()}`;
 
       const steeringMinutes =
         newType === "BRIDGE" && newSteeringMinutes.trim()
@@ -193,70 +339,154 @@ export const DiaryScreen: React.FC = () => {
         ? Number(newSpeed.trim()) || null
         : null;
 
-      const positionLat =
-        newType === "BRIDGE"
-          ? buildLatString(latDeg, latMin, latHem)
-          : null;
-
-      const positionLon =
-        newType === "BRIDGE"
-          ? buildLonString(lonDeg, lonMin, lonHem)
-          : null;
-
+      // Ensure audit table exists (idempotent)
       await run(
         `
-        INSERT INTO diary_entry (
-          id,
-          cadet_id,
-          deployment_id,
-          date,
-          entry_type,
-          time_start,
-          time_end,
-          summary,
-          position_lat,
-          position_lon,
-          course_over_ground_deg,
-          speed_over_ground_knots,
-          weather_summary,
-          role,
-          steering_minutes,
-          machinery_monitored,
-          remarks,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        CREATE TABLE IF NOT EXISTS diary_entry_audit (
+          id TEXT PRIMARY KEY NOT NULL,
+          diary_entry_id TEXT NOT NULL,
+          cadet_id TEXT,
+          snapshot_json TEXT NOT NULL,
+          change_type TEXT NOT NULL,
+          changed_at TEXT NOT NULL
+        );
       `,
-        [
-          id,
-          CURRENT_CADET_ID,
-          null,
-          newDate.trim(),
-          newType,
-          newType === "DAILY" ? null : newTimeStart.trim() || null,
-          newType === "DAILY" ? null : newTimeEnd.trim() || null,
-          newSummary.trim() || null,
-          positionLat,
-          positionLon,
-          courseNum,
-          speedNum,
-          newWeather.trim() || null,
-          newRole.trim() || null,
-          steeringMinutes,
-          newType === "ENGINE"
-            ? newMachineryMonitored.trim() || null
-            : null,
-          newRemarks.trim() || null,
-          now,
-          now,
-        ]
+        []
       );
+
+      if (editingEntry) {
+        // --- UPDATE + audit log ---
+
+        const auditId = `diary-audit-${Date.now()}`;
+        const snapshot = JSON.stringify(editingEntry);
+
+        await run(
+          `
+          INSERT INTO diary_entry_audit (
+            id,
+            diary_entry_id,
+            cadet_id,
+            snapshot_json,
+            change_type,
+            changed_at
+          ) VALUES (?, ?, ?, ?, ?, ?);
+        `,
+          [
+            auditId,
+            editingEntry.id,
+            CURRENT_CADET_ID,
+            snapshot,
+            "UPDATE",
+            now,
+          ]
+        );
+
+        await run(
+          `
+          UPDATE diary_entry
+          SET
+            date = ?,
+            entry_type = ?,
+            time_start = ?,
+            time_end = ?,
+            summary = ?,
+            position_lat = ?,
+            position_lon = ?,
+            course_over_ground_deg = ?,
+            speed_over_ground_knots = ?,
+            weather_summary = ?,
+            role = ?,
+            steering_minutes = ?,
+            machinery_monitored = ?,
+            remarks = ?,
+            updated_at = ?
+          WHERE id = ?;
+        `,
+          [
+            newDate.trim(),
+            newType,
+            newType === "DAILY" ? null : newTimeStart.trim() || null,
+            newType === "DAILY" ? null : newTimeEnd.trim() || null,
+            newSummary.trim() || null,
+            positionLat,
+            positionLon,
+            courseNum,
+            speedNum,
+            newWeather.trim() || null,
+            newRole.trim() || null,
+            steeringMinutes,
+            newType === "ENGINE"
+              ? newMachineryMonitored.trim() || null
+              : null,
+            newRemarks.trim() || null,
+            now,
+            editingEntry.id,
+          ]
+        );
+      } else {
+        // --- INSERT new row ---
+
+        const id = `diary-${Date.now()}`;
+
+        await run(
+          `
+          INSERT INTO diary_entry (
+            id,
+            cadet_id,
+            deployment_id,
+            date,
+            entry_type,
+            time_start,
+            time_end,
+            summary,
+            position_lat,
+            position_lon,
+            course_over_ground_deg,
+            speed_over_ground_knots,
+            weather_summary,
+            role,
+            steering_minutes,
+            machinery_monitored,
+            remarks,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        `,
+          [
+            id,
+            CURRENT_CADET_ID,
+            null,
+            newDate.trim(),
+            newType,
+            newType === "DAILY" ? null : newTimeStart.trim() || null,
+            newType === "DAILY" ? null : newTimeEnd.trim() || null,
+            newSummary.trim() || null,
+            positionLat,
+            positionLon,
+            courseNum,
+            speedNum,
+            newWeather.trim() || null,
+            newRole.trim() || null,
+            steeringMinutes,
+            newType === "ENGINE"
+              ? newMachineryMonitored.trim() || null
+              : null,
+            newRemarks.trim() || null,
+            now,
+            now,
+          ]
+        );
+      }
 
       await refreshEntries();
 
-      // Reset form lightly but keep date & type (Cadet is usually logging multiple in same day)
+      setEditingEntry(null);
+
+      // Reset form (keep date & type for convenience)
       setNewTimeStart("");
       setNewTimeEnd("");
+      setTimeStartObj(null);
+      setTimeEndObj(null);
       setNewSummary("");
       setNewCourse("");
       setNewSpeed("");
@@ -265,14 +495,15 @@ export const DiaryScreen: React.FC = () => {
       setNewSteeringMinutes("");
       setNewMachineryMonitored("");
       setNewRemarks("");
-      setLatDeg("");
-      setLatMin("");
+      setLatBody("");
       setLatHem("N");
-      setLonDeg("");
-      setLonMin("");
+      setLonBody("");
       setLonHem("E");
 
-      Alert.alert("Saved", "Diary entry added.");
+      Alert.alert(
+        "Saved",
+        editingEntry ? "Diary entry updated." : "Diary entry added."
+      );
     } catch (error) {
       console.error("Error saving diary entry", error);
       Alert.alert(
@@ -283,6 +514,8 @@ export const DiaryScreen: React.FC = () => {
       setSaving(false);
     }
   };
+
+  // ----- Render -----
 
   return (
     <View style={styles.root}>
@@ -324,10 +557,12 @@ export const DiaryScreen: React.FC = () => {
             </View>
           </View>
 
-          <Text style={styles.heading}>New entry</Text>
+          <Text style={styles.heading}>
+            {editingEntry ? "Edit entry" : "New entry"}
+          </Text>
           <Text style={styles.text}>
             Record either a daily training summary, a bridge watch, or an engine
-            watch. Later, these will feed into your TRB watchkeeping totals.
+            watch. These entries will feed into your TRB watchkeeping totals.
           </Text>
 
           {/* Type selector */}
@@ -353,7 +588,7 @@ export const DiaryScreen: React.FC = () => {
             })}
           </View>
 
-          {/* New entry form */}
+          {/* New / edit entry form */}
           <View style={styles.card}>
             {/* Date with native picker */}
             <Text style={styles.label}>Date</Text>
@@ -376,28 +611,52 @@ export const DiaryScreen: React.FC = () => {
 
             {(newType === "BRIDGE" || newType === "ENGINE") && (
               <>
-                <Text style={styles.label}>Time (HH:MM)</Text>
+                <Text style={styles.label}>Time</Text>
                 <View style={styles.row}>
                   <View style={styles.rowHalf}>
                     <Text style={styles.subLabel}>Start</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="e.g. 04:00"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={newTimeStart}
-                      onChangeText={setNewTimeStart}
-                    />
+                    <TouchableOpacity
+                      style={styles.dateButton}
+                      onPress={() => setShowStartTimePicker(true)}
+                    >
+                      <Text style={styles.dateButtonText}>
+                        {newTimeStart || "Select start time"}
+                      </Text>
+                    </TouchableOpacity>
+                    {showStartTimePicker && (
+                      <DateTimePicker
+                        value={timeStartObj || new Date()}
+                        mode="time"
+                        is24Hour={true}
+                        display={
+                          Platform.OS === "ios" ? "spinner" : "default"
+                        }
+                        onChange={onStartTimeChange}
+                      />
+                    )}
                   </View>
                   <View style={styles.rowGap} />
                   <View style={styles.rowHalf}>
                     <Text style={styles.subLabel}>End</Text>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="e.g. 08:00"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={newTimeEnd}
-                      onChangeText={setNewTimeEnd}
-                    />
+                    <TouchableOpacity
+                      style={styles.dateButton}
+                      onPress={() => setShowEndTimePicker(true)}
+                    >
+                      <Text style={styles.dateButtonText}>
+                        {newTimeEnd || "Select end time"}
+                      </Text>
+                    </TouchableOpacity>
+                    {showEndTimePicker && (
+                      <DateTimePicker
+                        value={timeEndObj || new Date()}
+                        mode="time"
+                        is24Hour={true}
+                        display={
+                          Platform.OS === "ios" ? "spinner" : "default"
+                        }
+                        onChange={onEndTimeChange}
+                      />
+                    )}
                   </View>
                 </View>
               </>
@@ -405,26 +664,17 @@ export const DiaryScreen: React.FC = () => {
 
             {newType === "BRIDGE" && (
               <>
-                <Text style={styles.label}>Latitude</Text>
+                <Text style={styles.label}>Latitude (DDMM.m)</Text>
                 <View style={styles.row}>
                   <View style={styles.rowHalf}>
                     <TextInput
                       style={styles.input}
-                      placeholder="Deg (e.g. 01)"
+                      placeholder="e.g. 0115.0"
                       placeholderTextColor={COLORS.textMuted}
-                      value={latDeg}
-                      onChangeText={setLatDeg}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.rowGap} />
-                  <View style={styles.rowHalf}>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Min.dec (e.g. 15.0)"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={latMin}
-                      onChangeText={setLatMin}
+                      value={formatLatDisplay(latBody)}
+                      onChangeText={(text) =>
+                        setLatBody(sanitizeLatLonInput(text))
+                      }
                       keyboardType="numeric"
                     />
                   </View>
@@ -465,26 +715,17 @@ export const DiaryScreen: React.FC = () => {
                   </View>
                 </View>
 
-                <Text style={styles.label}>Longitude</Text>
+                <Text style={styles.label}>Longitude (DDDMM.m)</Text>
                 <View style={styles.row}>
                   <View style={styles.rowHalf}>
                     <TextInput
                       style={styles.input}
-                      placeholder="Deg (e.g. 103)"
+                      placeholder="e.g. 10345.0"
                       placeholderTextColor={COLORS.textMuted}
-                      value={lonDeg}
-                      onChangeText={setLonDeg}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <View style={styles.rowGap} />
-                  <View style={styles.rowHalf}>
-                    <TextInput
-                      style={styles.input}
-                      placeholder="Min.dec (e.g. 45.0)"
-                      placeholderTextColor={COLORS.textMuted}
-                      value={lonMin}
-                      onChangeText={setLonMin}
+                      value={formatLonDisplay(lonBody)}
+                      onChangeText={(text) =>
+                        setLonBody(sanitizeLatLonInput(text))
+                      }
                       keyboardType="numeric"
                     />
                   </View>
@@ -622,13 +863,28 @@ export const DiaryScreen: React.FC = () => {
             />
 
             <View style={styles.actionsRow}>
+              {editingEntry && (
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={cancelEditing}
+                  disabled={saving}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.saveButton}
                 onPress={handleSaveNewEntry}
                 disabled={saving}
               >
                 <Text style={styles.saveButtonText}>
-                  {saving ? "Saving..." : "Add entry"}
+                  {saving
+                    ? editingEntry
+                      ? "Updating..."
+                      : "Saving..."
+                    : editingEntry
+                    ? "Update entry"
+                    : "Add entry"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -670,7 +926,11 @@ export const DiaryScreen: React.FC = () => {
           ) : (
             <View style={styles.listContainer}>
               {filteredEntries.map((entry) => (
-                <DiaryEntryCard key={entry.id} entry={entry} />
+                <DiaryEntryCard
+                  key={entry.id}
+                  entry={entry}
+                  onEdit={() => startEditing(entry)}
+                />
               ))}
             </View>
           )}
@@ -684,9 +944,13 @@ export const DiaryScreen: React.FC = () => {
 
 type DiaryEntryCardProps = {
   entry: DiaryEntry;
+  onEdit: () => void;
 };
 
-const DiaryEntryCard: React.FC<DiaryEntryCardProps> = ({ entry }) => {
+const DiaryEntryCard: React.FC<DiaryEntryCardProps> = ({
+  entry,
+  onEdit,
+}) => {
   const typeLabel = TYPE_LABEL[entry.entryType];
 
   const timeRange =
@@ -767,6 +1031,14 @@ const DiaryEntryCard: React.FC<DiaryEntryCardProps> = ({ entry }) => {
       {entry.remarks && (
         <Text style={styles.entryRemarks}>Remarks: {entry.remarks}</Text>
       )}
+
+      <View style={styles.entryActionsRow}>
+        <TouchableOpacity style={styles.entryEditButton} onPress={onEdit}>
+          <Feather name="edit-2" size={14} color={COLORS.textOnDark} />
+        </TouchableOpacity>
+      </View>
+
+      
     </View>
   );
 };
@@ -829,34 +1101,177 @@ function estimateHours(start?: string, end?: string): number {
 
 // ---- Lat / Lon helpers ----
 
-function buildLatString(
-  deg: string,
-  min: string,
+type ParseResult =
+  | { ok: true; value: string }
+  | { ok: false; message: string };
+
+function buildLatStringFromBody(
+  body: string,
   hem: "N" | "S"
-): string | null {
-  const d = deg.trim();
-  const m = min.trim();
+): ParseResult {
+  const raw = body.trim();
+  if (!raw) {
+    return { ok: false, message: "Latitude cannot be empty." };
+  }
+  if (raw.length < 3) {
+    return {
+      ok: false,
+      message: "Latitude should be in DDMM.m format (e.g. 0115.0).",
+    };
+  }
 
-  if (!d && !m) return null;
-  if (!d) return null; // must have degrees
+  const degStr = raw.slice(0, 2);
+  const minStr = raw.slice(2);
 
-  const mFormatted = m || "00.0";
-  return `${d}°${mFormatted}'${hem}`;
+  const deg = Number(degStr);
+  const minutes = Number(minStr);
+
+  if (Number.isNaN(deg) || Number.isNaN(minutes)) {
+    return {
+      ok: false,
+      message: "Latitude must contain only numbers and decimal point.",
+    };
+  }
+
+  if (deg < 0 || deg > 90) {
+    return {
+      ok: false,
+      message: "Latitude degrees must be between 0 and 90.",
+    };
+  }
+
+  if (minutes < 0 || minutes >= 60) {
+    return {
+      ok: false,
+      message: "Latitude minutes must be between 0.0 and 59.999.",
+    };
+  }
+
+  const degFormatted = deg.toString().padStart(2, "0");
+  const minFormatted = minutes.toFixed(1); // 1 decimal place
+
+  const final = `${degFormatted}°${minFormatted}'${hem}`;
+  return { ok: true, value: final };
 }
 
-function buildLonString(
-  deg: string,
-  min: string,
+function buildLonStringFromBody(
+  body: string,
   hem: "E" | "W"
-): string | null {
-  const d = deg.trim();
-  const m = min.trim();
+): ParseResult {
+  const raw = body.trim();
+  if (!raw) {
+    return { ok: false, message: "Longitude cannot be empty." };
+  }
+  if (raw.length < 4) {
+    return {
+      ok: false,
+      message: "Longitude should be in DDDMM.m format (e.g. 10345.0).",
+    };
+  }
 
-  if (!d && !m) return null;
-  if (!d) return null;
+  const degStr = raw.slice(0, 3);
+  const minStr = raw.slice(3);
 
-  const mFormatted = m || "00.0";
-  return `${d}°${mFormatted}'${hem}`;
+  const deg = Number(degStr);
+  const minutes = Number(minStr);
+
+  if (Number.isNaN(deg) || Number.isNaN(minutes)) {
+    return {
+      ok: false,
+      message: "Longitude must contain only numbers and decimal point.",
+    };
+  }
+
+  if (deg < 0 || deg > 180) {
+    return {
+      ok: false,
+      message: "Longitude degrees must be between 0 and 180.",
+    };
+  }
+
+  if (minutes < 0 || minutes >= 60) {
+    return {
+      ok: false,
+      message: "Longitude minutes must be between 0.0 and 59.999.",
+    };
+  }
+
+  const degFormatted = deg.toString().padStart(3, "0");
+  const minFormatted = minutes.toFixed(1);
+
+  const final = `${degFormatted}°${minFormatted}'${hem}`;
+  return { ok: true, value: final };
+}
+
+// Format display with ° after 2 or 3 digits
+
+function formatLatDisplay(body: string): string {
+  const raw = body.trim();
+  if (!raw) return "";
+  if (raw.length <= 2) return raw;
+  return raw.slice(0, 2) + "°" + raw.slice(2);
+}
+
+function formatLonDisplay(body: string): string {
+  const raw = body.trim();
+  if (!raw) return "";
+  if (raw.length <= 3) return raw;
+  return raw.slice(0, 3) + "°" + raw.slice(3);
+}
+
+function sanitizeLatLonInput(text: string): string {
+  return text.replace(/[^0-9.]/g, "");
+}
+
+// Parse back from display string like "01°15.0'N" into "0115.0" + hemisphere
+
+function parseLatBodyFromDisplay(display: string): {
+  body: string;
+  hem: "N" | "S";
+} | null {
+  const trimmed = display.trim();
+  if (!trimmed) return null;
+
+  const hemMatch = trimmed.match(/([NS])/i);
+  const hem = (hemMatch?.[1].toUpperCase() as "N" | "S") ?? "N";
+
+  const digits = trimmed.replace(/[^0-9.]/g, "");
+  if (!digits) return null;
+
+  return { body: digits, hem };
+}
+
+function parseLonBodyFromDisplay(display: string): {
+  body: string;
+  hem: "E" | "W";
+} | null {
+  const trimmed = display.trim();
+  if (!trimmed) return null;
+
+  const hemMatch = trimmed.match(/([EW])/i);
+  const hem = (hemMatch?.[1].toUpperCase() as "E" | "W") ?? "E";
+
+  const digits = trimmed.replace(/[^0-9.]/g, "");
+  if (!digits) return null;
+
+  return { body: digits, hem };
+}
+
+// Time helpers
+
+function formatTime(d: Date): string {
+  const h = d.getHours().toString().padStart(2, "0");
+  const m = d.getMinutes().toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+function buildDateFromTime(time: string): Date {
+  const [hStr, mStr] = time.split(":");
+  const now = new Date();
+  const h = Number(hStr) || 0;
+  const m = Number(mStr) || 0;
+  now.setHours(h, m, 0, 0);
+  return now;
 }
 
 // ---- Styles ----
@@ -1054,6 +1469,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     flexDirection: "row",
     justifyContent: "flex-end",
+    gap: 8,
   },
   saveButton: {
     paddingHorizontal: 16,
@@ -1065,6 +1481,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
     color: COLORS.textOnPrimary,
+  },
+  cancelButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.24)",
+  },
+  cancelButtonText: {
+    fontSize: 13,
+    color: COLORS.textOnDark,
   },
   dateButton: {
     borderRadius: 10,
@@ -1184,5 +1612,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMuted,
     marginTop: 4,
+  },
+  entryActionsRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  entryEditButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+  },
+  entryEditButtonText: {
+    fontSize: 11,
+    color: COLORS.textOnDark,
   },
 });
