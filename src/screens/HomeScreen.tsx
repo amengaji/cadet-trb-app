@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+
 import { COLORS } from "../../theme";
 import { ActionCard } from "../components/ActionCard";
 import type { RootStackParamList } from "../navigation/RootNavigator";
@@ -25,14 +26,8 @@ export const HomeScreen: React.FC = () => {
     <View style={styles.root}>
       {/* Top header bar with primary brand color */}
       <View style={styles.header}>
-        <View>
-          <Text style={styles.appTitle}>Cadet TRB</Text>
-          <Text style={styles.appSubtitle}>Cadet Training Record Book</Text>
-        </View>
-
-        <View style={styles.headerRight}>
-          <Text style={styles.headerMode}>Cadet mode</Text>
-        </View>
+        <Text style={styles.appTitle}>Cadet TRB</Text>
+        <Text style={styles.appSubtitle}>Cadet Training Record Book</Text>
       </View>
 
       {/* Scrollable content area */}
@@ -43,11 +38,14 @@ export const HomeScreen: React.FC = () => {
           sea service, tasks, watchkeeping and reviews.
         </Text>
 
-        {/* Section label */}
-        <Text style={styles.sectionLabel}>Record book sections</Text>
-
         {/* Quick actions stacked vertically */}
         <View style={styles.actionsColumn}>
+          <ActionCard
+            title="Cadet Profile"
+            description="Manage your personal, academy and emergency contact details."
+            onPress={() => navigation.navigate("Profile")}
+          />
+          <View style={styles.actionGap} />
           <ActionCard
             title="(1) Sea Service"
             description="View and record sign-on / sign-off and voyage details."
@@ -71,16 +69,15 @@ export const HomeScreen: React.FC = () => {
         <View style={styles.placeholderCard}>
           <Text style={styles.cardTitle}>Next Steps</Text>
           <Text style={styles.cardText}>
-            • We will add navigation to full detail screens{"\n"}
-            • Then we will connect it to an offline database{"\n"}
-            • Finally, we will plug in sync, evidence, and signatures
+            • We will add structured TRB tasks linked to STCW{"\n"}
+            • Then we will connect diary & watchkeeping logs{"\n"}
+            • Finally, we will plug in evidence, signatures and PDF export
           </Text>
         </View>
 
         <Text style={styles.footerNote}>
-          This is an early shell of the Cadet app UI. All content is local and
-          static for now — we&apos;ll introduce real data and offline storage
-          next.
+          For now, this is still an offline-first prototype. All data is stored
+          locally in SQLite on your device.
         </Text>
       </ScrollView>
     </View>
@@ -94,14 +91,11 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: Platform.OS === "android" ? 40 : 20,
-    paddingBottom: 12,
+    paddingBottom: 16,
     paddingHorizontal: 24,
     backgroundColor: COLORS.primary,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(0,0,0,0.15)",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
   },
   appTitle: {
     fontSize: 26,
@@ -112,13 +106,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 14,
     color: "rgba(255,255,255,0.85)",
-  },
-  headerRight: {
-    alignItems: "flex-end",
-  },
-  headerMode: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.9)",
   },
   content: {
     paddingHorizontal: 24,
@@ -137,14 +124,6 @@ const styles = StyleSheet.create({
     color: COLORS.textOnDark,
     marginBottom: 20,
     maxWidth: 700,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    color: COLORS.textMuted,
-    marginBottom: 8,
   },
   actionsColumn: {
     marginBottom: 24,
