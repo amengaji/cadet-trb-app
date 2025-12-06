@@ -1,5 +1,5 @@
 // src/screens/TasksScreen.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,16 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
   Alert,
+  Modal,
+  TextInput,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Feather } from "@expo/vector-icons";
+import TRBHeader from "../components/TRBHeader";
+
 
 import { COLORS } from "../../theme";
 import type { RootStackParamList } from "../navigation/RootNavigator";
@@ -30,7 +34,7 @@ type StatusFilter = "ALL" | TaskStatus;
 
 const SECTION_LABELS: Record<SectionFilter, string> = {
   ALL: "All sections",
-  NAV: "Navigation & watch",
+  NAV: "Navigation & watchkeeping",
   CARGO: "Cargo & ballast",
   SAFETY: "Safety & emergency",
   LIFE: "Shipboard life",
@@ -47,7 +51,7 @@ const STATUS_LABELS: Record<StatusFilter, string> = {
 const CURRENT_CADET_ID = "cadet-001";
 const CURRENT_STREAM: CadetStream = "DECK";
 
-export const TasksScreen: React.FC = () => {
+  const TasksScreen: React.FC = () => {
   const navigation = useNavigation<TasksNavProp>();
 
   const [loading, setLoading] = useState(true);
@@ -55,6 +59,12 @@ export const TasksScreen: React.FC = () => {
   const [sectionFilter, setSectionFilter] = useState<SectionFilter>("ALL");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
+
+  // Modal state
+  const [selectedTask, setSelectedTask] =
+    useState<TrainingTaskWithProgress | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalReflectionDraft, setModalReflectionDraft] = useState("");
 
   const handleBack = () => {
     if (navigation.canGoBack()) {
@@ -70,7 +80,10 @@ export const TasksScreen: React.FC = () => {
     const init = async () => {
       try {
         await ensureSampleTasks(CURRENT_CADET_ID, CURRENT_STREAM);
-        const loaded = await loadTasksForCadet(CURRENT_CADET_ID, CURRENT_STREAM);
+        const loaded = await loadTasksForCadet(
+          CURRENT_CADET_ID,
+          CURRENT_STREAM
+        );
         if (isMounted) {
           setTasks(loaded);
         }
@@ -96,17 +109,58 @@ export const TasksScreen: React.FC = () => {
     setTasks(loaded);
   };
 
-  const updateTaskLocally = (
-    taskId: string,
-    updater: (t: TrainingTaskWithProgress) => TrainingTaskWithProgress
-  ) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.template.id === taskId ? updater(t) : t))
-    );
-  };
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (sectionFilter !== "ALL" && t.template.sectionCode !== sectionFilter) {
+        return false;
+      }
+      if (statusFilter !== "ALL" && t.progress.status !== statusFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [tasks, sectionFilter, statusFilter]);
+
+  // Group by section for TRB-style display
+  const groupedBySection = useMemo(() => {
+    const groups: Record<string, TrainingTaskWithProgress[]> = {};
+    for (const t of filteredTasks) {
+      const key = t.template.sectionCode || "OTHER";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(t);
+    }
+    return groups;
+  }, [filteredTasks]);
+
+  const totalTasks = tasks.length;
+  const pendingCount = tasks.filter((t) => t.progress.status === "PENDING")
+    .length;
+  const submittedCount = tasks.filter(
+    (t) => t.progress.status === "SUBMITTED"
+  ).length;
+  const verifiedCount = tasks.filter((t) => t.progress.status === "VERIFIED")
+    .length;
+  const approvedCount = tasks.filter((t) => t.progress.status === "APPROVED")
+    .length;
+
+  const completionPercent =
+    totalTasks === 0
+      ? 0
+      : Math.round(((verifiedCount + approvedCount) / totalTasks) * 100);
+
+  // ----- Actions -----
 
   const handleToggleStatus = async (task: TrainingTaskWithProgress) => {
     const currentStatus = task.progress.status;
+
+    if (currentStatus === "VERIFIED" || currentStatus === "APPROVED") {
+      Alert.alert(
+        "Read-only",
+        "This task has already been verified/approved. Status changes must be done by the officer or Master in the ship/admin interface."
+      );
+      return;
+    }
+
     const nextStatus: TaskStatus =
       currentStatus === "PENDING" ? "SUBMITTED" : "PENDING";
 
@@ -162,7 +216,6 @@ export const TasksScreen: React.FC = () => {
       const now = new Date().toISOString();
 
       if (task.progress.id) {
-        // Update existing progress row
         await run(
           `
           UPDATE training_task_progress
@@ -172,7 +225,6 @@ export const TasksScreen: React.FC = () => {
           [reflectionText.trim() || null, now, task.progress.id]
         );
       } else {
-        // Create a progress row if it doesn't exist yet
         const newId = `taskprog-${Date.now()}`;
         await run(
           `
@@ -200,9 +252,7 @@ export const TasksScreen: React.FC = () => {
         );
       }
 
-      // Reload from DB so UI always reflects persisted state
       await refreshTasks();
-
       Alert.alert("Saved", "Reflection saved for this task.");
     } catch (error) {
       console.error("Error saving reflection", error);
@@ -215,27 +265,29 @@ export const TasksScreen: React.FC = () => {
     }
   };
 
+  const openTaskModal = (task: TrainingTaskWithProgress) => {
+    setSelectedTask(task);
+    setModalReflectionDraft(task.progress.reflectionText ?? "");
+    setModalVisible(true);
+  };
 
-  const filteredTasks = tasks.filter((t) => {
-    if (sectionFilter !== "ALL" && t.template.sectionCode !== sectionFilter) {
-      return false;
-    }
-    if (statusFilter !== "ALL" && t.progress.status !== statusFilter) {
-      return false;
-    }
-    return true;
-  });
+  const closeTaskModal = () => {
+    setModalVisible(false);
+    setSelectedTask(null);
+    setModalReflectionDraft("");
+  };
 
-  const totalTasks = tasks.length;
-  const submittedCount = tasks.filter(
-    (t) => t.progress.status === "SUBMITTED"
-  ).length;
-  const verifiedCount = tasks.filter(
-    (t) => t.progress.status === "VERIFIED"
-  ).length;
-  const approvedCount = tasks.filter(
-    (t) => t.progress.status === "APPROVED"
-  ).length;
+  const handleModalSave = async () => {
+    if (!selectedTask) return;
+    await handleSaveReflection(selectedTask, modalReflectionDraft);
+  };
+
+  const handleModalToggleStatus = async () => {
+    if (!selectedTask) return;
+    await handleToggleStatus(selectedTask);
+  };
+
+  // ----- Render -----
 
   return (
     <View style={styles.root}>
@@ -248,7 +300,7 @@ export const TasksScreen: React.FC = () => {
 
         <View style={styles.headerTitles}>
           <Text style={styles.appTitle}>Cadet TRB</Text>
-          <Text style={styles.appSubtitle}>Tasks & Competence</Text>
+          <Text style={styles.appSubtitle}>Tasks & Competence (TRB)</Text>
         </View>
       </View>
 
@@ -272,19 +324,35 @@ export const TasksScreen: React.FC = () => {
             </View>
             <View style={styles.summaryDivider} />
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Verified / Approved</Text>
+              <Text style={styles.summaryLabel}>Verified + Approved</Text>
               <Text style={styles.summaryValue}>
                 {verifiedCount + approvedCount}
               </Text>
             </View>
           </View>
 
-          <Text style={styles.heading}>Practical training tasks</Text>
+          {/* Progress bar */}
+          <View style={styles.progressWrapper}>
+            <View style={styles.progressLabelsRow}>
+              <Text style={styles.progressLabelText}>Overall competence</Text>
+              <Text style={styles.progressLabelText}>{completionPercent}%</Text>
+            </View>
+            <View style={styles.progressBarTrack}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  { width: `${completionPercent}%` },
+                ]}
+              />
+            </View>
+          </View>
+
+          <Text style={styles.heading}>Practical TRB tasks</Text>
           <Text style={styles.text}>
-            These tasks mirror a traditional Training Record Book. As a cadet
-            you complete each task, write a brief reflection, and mark it as
-            submitted. Later, an officer and the Master will verify and approve
-            them in the ship / admin interfaces.
+            These items mirror a Training Record Book. Complete each task at
+            sea, write a short reflection, then mark it as submitted. Your
+            officer and the Master will review and sign off through their
+            interfaces.
           </Text>
 
           {/* Filters */}
@@ -296,10 +364,7 @@ export const TasksScreen: React.FC = () => {
                 return (
                   <TouchableOpacity
                     key={section}
-                    style={[
-                      styles.chip,
-                      isActive && styles.chipActive,
-                    ]}
+                    style={[styles.chip, isActive && styles.chipActive]}
                     onPress={() => setSectionFilter(section)}
                   >
                     <Text
@@ -318,34 +383,31 @@ export const TasksScreen: React.FC = () => {
 
           <Text style={styles.filterLabel}>Status</Text>
           <View style={styles.chipRow}>
-            {(["ALL", "PENDING", "SUBMITTED", "VERIFIED", "APPROVED"] as StatusFilter[]).map(
-              (status) => {
-                const isActive = statusFilter === status;
-                return (
-                  <TouchableOpacity
-                    key={status}
+            {(
+              ["ALL", "PENDING", "SUBMITTED", "VERIFIED", "APPROVED"] as StatusFilter[]
+            ).map((status) => {
+              const isActive = statusFilter === status;
+              return (
+                <TouchableOpacity
+                  key={status}
+                  style={[styles.chipSmall, isActive && styles.chipActive]}
+                  onPress={() => setStatusFilter(status)}
+                >
+                  <Text
                     style={[
-                      styles.chipSmall,
-                      isActive && styles.chipActive,
+                      styles.chipTextSmall,
+                      isActive && styles.chipTextActive,
                     ]}
-                    onPress={() => setStatusFilter(status)}
                   >
-                    <Text
-                      style={[
-                        styles.chipTextSmall,
-                        isActive && styles.chipTextActive,
-                      ]}
-                    >
-                      {STATUS_LABELS[status]}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }
-            )}
+                    {STATUS_LABELS[status]}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
-          {/* Task cards */}
-          {filteredTasks.length === 0 ? (
+          {/* Grouped tasks */}
+          {Object.keys(groupedBySection).length === 0 ? (
             <View style={styles.emptyBox}>
               <Text style={styles.emptyTitle}>No tasks match this filter</Text>
               <Text style={styles.emptyText}>
@@ -354,78 +416,191 @@ export const TasksScreen: React.FC = () => {
             </View>
           ) : (
             <View style={styles.listContainer}>
-              {filteredTasks.map((task) => {
-                const isSaving = savingTaskId === task.template.id;
-                return (
-                  <TaskCard
-                    key={task.template.id}
-                    task={task}
-                    onToggleStatus={() => handleToggleStatus(task)}
-                    onSaveReflection={(text) =>
-                      handleSaveReflection(task, text)
-                    }
-                    isSaving={isSaving}
-                  />
-                );
-              })}
+              {Object.entries(groupedBySection).map(
+                ([sectionCode, sectionTasks]) => (
+                  <View key={sectionCode} style={styles.sectionBlock}>
+                    <View style={styles.sectionHeaderRow}>
+                      <View>
+                        <Text style={styles.sectionTitle}>
+                          {getSectionTitle(sectionCode)}
+                        </Text>
+                        <Text style={styles.sectionSubtitle}>
+                          {sectionTasks.length} tasks in this section
+                        </Text>
+                      </View>
+                    </View>
+
+                    {sectionTasks.map((task) => {
+                      const isSaving = savingTaskId === task.template.id;
+                      return (
+                        <TaskCard
+                          key={task.template.id}
+                          task={task}
+                          isSaving={isSaving}
+                          onOpenDetails={() => openTaskModal(task)}
+                          onToggleStatus={() => handleToggleStatus(task)}
+                        />
+                      );
+                    })}
+                  </View>
+                )
+              )}
             </View>
           )}
         </ScrollView>
       )}
+
+      {/* Task details modal */}
+      <Modal
+        visible={modalVisible && !!selectedTask}
+        animationType="slide"
+        transparent
+        onRequestClose={closeTaskModal}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalContainer}>
+            {selectedTask && (
+              <>
+                <View style={styles.modalHeaderRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalTitle}>
+                      {selectedTask.template.title}
+                    </Text>
+                    <Text style={styles.modalSubtitle}>
+                      {getSectionTitle(selectedTask.template.sectionCode)}{" "}
+                      {selectedTask.template.isMandatory ? "• Mandatory" : ""}
+                    </Text>
+                  </View>
+                  <StatusPill status={selectedTask.progress.status} />
+                </View>
+
+                <ScrollView
+                  style={styles.modalBody}
+                  contentContainerStyle={{ paddingBottom: 16 }}
+                >
+                  <Text style={styles.modalLabel}>Task description</Text>
+                  <Text style={styles.modalDescription}>
+                    {selectedTask.template.description}
+                  </Text>
+
+                  <Text style={styles.modalLabel}>
+                    Reflection (what you did / learned)
+                  </Text>
+                  <TextInput
+                    style={styles.modalTextArea}
+                    placeholder="Describe how you performed this task, what you observed, and what you learned."
+                    placeholderTextColor={COLORS.textMuted}
+                    value={modalReflectionDraft}
+                    onChangeText={setModalReflectionDraft}
+                    multiline
+                    editable={
+                      selectedTask.progress.status !== "VERIFIED" &&
+                      selectedTask.progress.status !== "APPROVED"
+                    }
+                  />
+
+                  <View style={styles.timelineBox}>
+                    <Text style={styles.timelineTitle}>Status timeline</Text>
+                    <TimelineRow
+                      label="Submitted"
+                      active={
+                        selectedTask.progress.status === "SUBMITTED" ||
+                        selectedTask.progress.status === "VERIFIED" ||
+                        selectedTask.progress.status === "APPROVED"
+                      }
+                    />
+                    <TimelineRow
+                      label="Verified by officer"
+                      active={
+                        selectedTask.progress.status === "VERIFIED" ||
+                        selectedTask.progress.status === "APPROVED"
+                      }
+                    />
+                    <TimelineRow
+                      label="Approved by Master / academy"
+                      active={selectedTask.progress.status === "APPROVED"}
+                    />
+                    <Text style={styles.timelineHint}>
+                      Officer and Master sign-offs will be done via ship /
+                      admin interfaces, not on this cadet app.
+                    </Text>
+                  </View>
+                </ScrollView>
+
+                <View style={styles.modalActionsRow}>
+                  <TouchableOpacity
+                    style={styles.modalSecondaryButton}
+                    onPress={closeTaskModal}
+                  >
+                    <Text style={styles.modalSecondaryButtonText}>Close</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.modalPrimaryButton}
+                    onPress={handleModalSave}
+                    disabled={
+                      savingTaskId === selectedTask.template.id ||
+                      selectedTask.progress.status === "VERIFIED" ||
+                      selectedTask.progress.status === "APPROVED"
+                    }
+                  >
+                    <Text style={styles.modalPrimaryButtonText}>
+                      {savingTaskId === selectedTask.template.id
+                        ? "Saving..."
+                        : "Save reflection"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.modalPrimaryButton,
+                      selectedTask.progress.status === "PENDING"
+                        ? styles.modalSubmitButton
+                        : styles.modalUnsubmitButton,
+                    ]}
+                    onPress={handleModalToggleStatus}
+                    disabled={savingTaskId === selectedTask.template.id}
+                  >
+                    <Text style={styles.modalPrimaryButtonText}>
+                      {selectedTask.progress.status === "PENDING"
+                        ? "Mark as submitted"
+                        : selectedTask.progress.status === "SUBMITTED"
+                        ? "Mark as pending"
+                        : "Status locked"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
 
 // ----- Task card component -----
-// ----- Task card component -----
 
 type TaskCardProps = {
   task: TrainingTaskWithProgress;
-  onToggleStatus: () => void;
-  onSaveReflection: (text: string) => void;
   isSaving: boolean;
+  onOpenDetails: () => void;
+  onToggleStatus: () => void;
 };
 
 const TaskCard: React.FC<TaskCardProps> = ({
   task,
-  onToggleStatus,
-  onSaveReflection,
   isSaving,
+  onOpenDetails,
+  onToggleStatus,
 }) => {
-  const [reflectionDraft, setReflectionDraft] = useState(
-    task.progress.reflectionText ?? ""
-  );
-
-  // Keep the text field in sync with DB whenever the task's reflection changes
-  useEffect(() => {
-    setReflectionDraft(task.progress.reflectionText ?? "");
-  }, [task.progress.reflectionText]);
-
   const status = task.progress.status;
-  const statusLabel = STATUS_LABELS[status];
-  const isSubmittedOrAbove = status !== "PENDING";
+  const reflectionSnippet = task.progress.reflectionText
+    ? truncate(task.progress.reflectionText, 140)
+    : "No reflection saved yet.";
 
-  const statusStyle =
-    status === "APPROVED"
-      ? styles.statusApproved
-      : status === "VERIFIED"
-      ? styles.statusVerified
-      : status === "SUBMITTED"
-      ? styles.statusSubmitted
-      : styles.statusPending;
-
-  const statusTextStyle =
-    status === "APPROVED"
-      ? styles.statusApprovedText
-      : status === "VERIFIED"
-      ? styles.statusVerifiedText
-      : status === "SUBMITTED"
-      ? styles.statusSubmittedText
-      : styles.statusPendingText;
-
-  const handleSavePress = () => {
-    onSaveReflection(reflectionDraft);
-  };
+  const canToggle =
+    status === "PENDING" || status === "SUBMITTED";
 
   return (
     <View style={styles.taskCard}>
@@ -433,73 +608,112 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <View style={{ flex: 1 }}>
           <Text style={styles.taskTitle}>{task.template.title}</Text>
           <Text style={styles.taskSubtitle}>
-            {task.template.sectionCode === "NAV"
-              ? "Navigation & watchkeeping"
-              : task.template.sectionCode === "CARGO"
-              ? "Cargo & ballast operations"
-              : task.template.sectionCode === "SAFETY"
-              ? "Safety & emergency"
-              : "Shipboard life / misc."}
+            {getSectionTitle(task.template.sectionCode)}
             {task.template.isMandatory ? " • Mandatory" : ""}
           </Text>
         </View>
-        <View style={[styles.statusPill, statusStyle]}>
-          <Text style={statusTextStyle}>{statusLabel}</Text>
-        </View>
+        <StatusPill status={status} />
       </View>
 
-      <Text style={styles.taskDescription}>{task.template.description}</Text>
+      <Text style={styles.taskReflectionSnippet}>{reflectionSnippet}</Text>
 
-      <Text style={styles.reflectionLabel}>
-        Reflection (what you did / learnt)
-      </Text>
-      <TextInput
-        style={styles.reflectionInput}
-        placeholder="Example: Assisted 2/O with fixing position using radar ranges; learned how to check parallel index..."
-        placeholderTextColor={COLORS.textMuted}
-        value={reflectionDraft}
-        onChangeText={setReflectionDraft}
-        multiline
-      />
-
-      <View style={styles.taskActionsRow}>
+      <View style={styles.taskFooterRow}>
         <TouchableOpacity
-          style={[styles.taskButton, styles.taskButtonSecondary]}
-          onPress={handleSavePress}
-          disabled={isSaving}
+          style={styles.taskDetailsButton}
+          onPress={onOpenDetails}
         >
-          <Text style={styles.taskButtonSecondaryText}>
-            {isSaving ? "Saving..." : "Save reflection"}
-          </Text>
+          <Feather
+            name="file-text"
+            size={14}
+            color={COLORS.textOnDark}
+            style={{ marginRight: 6 }}
+          />
+          <Text style={styles.taskDetailsButtonText}>Open details</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.taskButton,
-            isSubmittedOrAbove
-              ? styles.taskButtonDangerOutline
-              : styles.taskButtonPrimary,
-          ]}
-          onPress={onToggleStatus}
-          disabled={isSaving}
-        >
-          <Text
-            style={
-              isSubmittedOrAbove
-                ? styles.taskButtonDangerOutlineText
-                : styles.taskButtonPrimaryText
-            }
+        {canToggle && (
+          <TouchableOpacity
+            style={[
+              styles.taskStatusButton,
+              status === "PENDING"
+                ? styles.taskStatusSubmit
+                : styles.taskStatusUnsubmit,
+            ]}
+            onPress={onToggleStatus}
+            disabled={isSaving}
           >
-            {status === "PENDING"
-              ? "Mark as submitted"
-              : "Mark as pending"}
+            <Text style={styles.taskStatusButtonText}>
+              {isSaving
+                ? "Saving..."
+                : status === "PENDING"
+                ? "Mark as submitted"
+                : "Mark as pending"}
           </Text>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
 };
 
+// ----- Small status pill -----
+
+const StatusPill: React.FC<{ status: TaskStatus }> = ({ status }) => {
+  const label = STATUS_LABELS[status];
+
+  let containerStyle = styles.statusPillPending;
+  let textStyle = styles.statusPillTextPending;
+  let iconName: keyof typeof Feather.glyphMap = "clock";
+
+  if (status === "SUBMITTED") {
+    containerStyle = styles.statusPillSubmitted;
+    textStyle = styles.statusPillTextSubmitted;
+    iconName = "send";
+  } else if (status === "VERIFIED") {
+    containerStyle = styles.statusPillVerified;
+    textStyle = styles.statusPillTextVerified;
+    iconName = "shield";
+  } else if (status === "APPROVED") {
+    containerStyle = styles.statusPillApproved;
+    textStyle = styles.statusPillTextApproved;
+    iconName = "check-circle";
+  }
+
+  return (
+    <View style={[styles.statusPill, containerStyle]}>
+      <Feather
+        name={iconName}
+        size={11}
+        color={textStyle.color as string}
+        style={{ marginRight: 4 }}
+      />
+      <Text style={textStyle}>{label}</Text>
+    </View>
+  );
+};
+
+// ----- Timeline row -----
+
+const TimelineRow: React.FC<{ label: string; active: boolean }> = ({
+  label,
+  active,
+}) => {
+  return (
+    <View style={styles.timelineRow}>
+      <View
+        style={[styles.timelineDot, active && styles.timelineDotActive]}
+      />
+      <Text
+        style={[
+          styles.timelineRowLabel,
+          active && styles.timelineRowLabelActive,
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+};
 
 // ----- Data helpers -----
 
@@ -525,17 +739,16 @@ async function ensureSampleTasks(
         stream,
         is_mandatory
       ) VALUES
-        ("task-nav-001", "NAV", "Keep a proper lookout and report traffic", "Take part in bridge watch, maintain lookout by sight and hearing, and report targets to OOW.", "DECK", 1),
-        ("task-nav-002", "NAV", "Fix ship's position using GPS and visual bearings", "Assist the OOW in plotting positions, cross-checking GPS with visual or radar bearings.", "DECK", 1),
-        ("task-cargo-001", "CARGO", "Assist in pre-loading checks", "Participate in cargo tank / hold inspection, line-up, and pre-loading checklist.", "DECK", 1),
-        ("task-safety-001", "SAFETY", "Participate in abandon ship drill", "Muster at lifeboat station, don lifejacket, help in lowering / securing survival craft.", "DECK", 1),
-        ("task-life-001", "LIFE", "Observe safe working practices on deck", "Identify slip / trip hazards, use proper PPE, and follow toolbox talks.", "DECK", 0);
+        ("task-nav-001", "NAV", "Keep a proper lookout and report traffic", "Take part in bridge watch, maintain lookout by sight and hearing, and report targets to the OOW using correct reporting phrases.", "DECK", 1),
+        ("task-nav-002", "NAV", "Fix the ship's position", "Assist the OOW in fixing the ship's position using GPS, cross-checked with visual or radar bearings, and plot it correctly on the chart.", "DECK", 1),
+        ("task-cargo-001", "CARGO", "Assist in pre-loading checks", "Participate in cargo hold / tank inspection, line-up of cargo systems, and completion of pre-loading checklists according to company procedures.", "DECK", 1),
+        ("task-safety-001", "SAFETY", "Participate in abandon ship drill", "Muster at lifeboat station, don lifejacket, assist with launching arrangements, and carry out duties assigned in the muster list.", "DECK", 1),
+        ("task-life-001", "LIFE", "Demonstrate safe working practices", "Observe and apply safe working practices on deck, including PPE use, housekeeping, and toolbox talks.", "DECK", 0);
     `,
       []
     );
   }
 
-  // Ensure progress rows for this cadet
   const existingProgress = await getAll<{ count: number }>(
     "SELECT COUNT(*) as count FROM training_task_progress WHERE cadet_id = ?;",
     [cadetId]
@@ -634,6 +847,28 @@ async function loadTasksForCadet(
   });
 }
 
+// ----- Small helpers -----
+
+function getSectionTitle(sectionCode: string): string {
+  switch (sectionCode) {
+    case "NAV":
+      return "Navigation & watchkeeping";
+    case "CARGO":
+      return "Cargo & ballast operations";
+    case "SAFETY":
+      return "Safety & emergency";
+    case "LIFE":
+      return "Shipboard life / other";
+    default:
+      return "Other tasks";
+  }
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "…";
+}
+
 // ----- Styles -----
 
 const styles = StyleSheet.create({
@@ -703,7 +938,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.06)",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   summaryItem: {
     flex: 1,
@@ -723,6 +958,29 @@ const styles = StyleSheet.create({
     height: 24,
     backgroundColor: "rgba(255,255,255,0.12)",
     marginHorizontal: 12,
+  },
+  progressWrapper: {
+    marginBottom: 18,
+  },
+  progressLabelsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  progressLabelText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+  },
+  progressBarTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#10192A",
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: COLORS.primary,
   },
   heading: {
     fontSize: 20,
@@ -750,17 +1008,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
-  chipSmall: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.22)",
     backgroundColor: "#050B16",
   },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  chipSmall: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.22)",
@@ -802,16 +1060,32 @@ const styles = StyleSheet.create({
     color: COLORS.textOnDark,
   },
   listContainer: {
-    marginTop: 10,
+    marginTop: 8,
     gap: 12,
+  },
+  sectionBlock: {
+    marginBottom: 16,
+  },
+  sectionHeaderRow: {
+    marginBottom: 6,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: COLORS.textOnDark,
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: COLORS.textMuted,
   },
   taskCard: {
     backgroundColor: COLORS.surface,
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
     maxWidth: 700,
+    marginTop: 6,
   },
   taskHeaderRow: {
     flexDirection: "row",
@@ -828,62 +1102,139 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMuted,
   },
+  taskReflectionSnippet: {
+    fontSize: 13,
+    color: COLORS.textOnDark,
+    marginTop: 4,
+  },
+  taskFooterRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  taskDetailsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.24)",
+  },
+  taskDetailsButtonText: {
+    fontSize: 12,
+    color: COLORS.textOnDark,
+  },
+  taskStatusButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  taskStatusSubmit: {
+    backgroundColor: COLORS.primary,
+  },
+  taskStatusUnsubmit: {
+    borderWidth: 1,
+    borderColor: "rgba(255,193,7,0.9)",
+  },
+  taskStatusButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.textOnPrimary,
+  },
   statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderWidth: 1,
     marginLeft: 10,
+    borderWidth: 1,
   },
-  statusPending: {
+  statusPillPending: {
     borderColor: "rgba(255,255,255,0.25)",
     backgroundColor: "rgba(255,255,255,0.03)",
   },
-  statusSubmitted: {
+  statusPillSubmitted: {
     borderColor: "rgba(255,193,7,0.9)",
     backgroundColor: "rgba(255,193,7,0.08)",
   },
-  statusVerified: {
+  statusPillVerified: {
     borderColor: "rgba(0,168,255,0.9)",
     backgroundColor: "rgba(0,168,255,0.08)",
   },
-  statusApproved: {
+  statusPillApproved: {
     borderColor: "rgba(99,214,111,0.9)",
     backgroundColor: "rgba(99,214,111,0.08)",
   },
-  statusPendingText: {
+  statusPillTextPending: {
     fontSize: 10,
     fontWeight: "600",
     color: COLORS.textMuted,
   },
-  statusSubmittedText: {
+  statusPillTextSubmitted: {
     fontSize: 10,
     fontWeight: "600",
     color: "#FFC107",
   },
-  statusVerifiedText: {
+  statusPillTextVerified: {
     fontSize: 10,
     fontWeight: "600",
     color: "#00A8FF",
   },
-  statusApprovedText: {
+  statusPillTextApproved: {
     fontSize: 10,
     fontWeight: "600",
     color: "#6BEA7E",
   },
-  taskDescription: {
-    fontSize: 13,
-    color: COLORS.textOnDark,
-    marginTop: 4,
-    marginBottom: 10,
+  // Modal
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    paddingHorizontal: 16,
   },
-  reflectionLabel: {
+  modalContainer: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    maxHeight: "85%",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  modalHeaderRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.textOnDark,
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  modalBody: {
+    marginTop: 8,
+  },
+  modalLabel: {
     fontSize: 12,
     fontWeight: "500",
     color: COLORS.textOnDark,
+    marginTop: 10,
     marginBottom: 4,
   },
-  reflectionInput: {
+  modalDescription: {
+    fontSize: 13,
+    color: COLORS.textOnDark,
+  },
+  modalTextArea: {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
@@ -892,43 +1243,88 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.textOnDark,
     backgroundColor: "#050B16",
-    minHeight: 60,
+    minHeight: 80,
     textAlignVertical: "top",
   },
-  taskActionsRow: {
-    marginTop: 10,
+  modalActionsRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
+    alignItems: "center",
     gap: 8,
+    marginTop: 10,
   },
-  taskButton: {
+  modalSecondaryButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
-  },
-  taskButtonSecondary: {
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
+    borderColor: "rgba(255,255,255,0.24)",
   },
-  taskButtonSecondaryText: {
+  modalSecondaryButtonText: {
     fontSize: 12,
     color: COLORS.textOnDark,
   },
-  taskButtonPrimary: {
+  modalPrimaryButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
     backgroundColor: COLORS.primary,
   },
-  taskButtonPrimaryText: {
+  modalSubmitButton: {
+    backgroundColor: COLORS.primary,
+  },
+  modalUnsubmitButton: {
+    backgroundColor: "rgba(255,193,7,0.12)",
+  },
+  modalPrimaryButtonText: {
     fontSize: 12,
     fontWeight: "600",
     color: COLORS.textOnPrimary,
   },
-  taskButtonDangerOutline: {
+  // Timeline
+  timelineBox: {
+    marginTop: 14,
+    padding: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "rgba(255,99,99,0.9)",
+    borderColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "#050B16",
   },
-  taskButtonDangerOutlineText: {
+  timelineTitle: {
     fontSize: 12,
     fontWeight: "600",
-    color: "rgba(255,99,99,0.95)",
+    color: COLORS.textOnDark,
+    marginBottom: 6,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  timelineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    marginRight: 8,
+  },
+  timelineDotActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  timelineRowLabel: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+  },
+  timelineRowLabelActive: {
+    color: COLORS.textOnDark,
+    fontWeight: "500",
+  },
+  timelineHint: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginTop: 6,
   },
 });
+export default TasksScreen;

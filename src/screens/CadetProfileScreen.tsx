@@ -20,6 +20,7 @@ import { COLORS } from "../../theme";
 import { getAll, run } from "../db/sqlite";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import type { CadetStream } from "../models/crb";
+import TRBHeader from "../components/TRBHeader";
 
 type CadetProfileNav = NativeStackNavigationProp<
   RootStackParamList,
@@ -30,7 +31,7 @@ const CURRENT_CADET_ID = "cadet-001";
 
 type ProfileForm = {
   fullName: string;
-  dateOfBirth: string; // YYYY-MM-DD
+  dateOfBirth: string;
   stream: CadetStream;
   dischargeBookNo: string;
   passportNo: string;
@@ -52,38 +53,28 @@ const EMPTY_PROFILE: ProfileForm = {
   nextOfKinContact: "",
 };
 
-const STREAM_OPTIONS: { value: CadetStream; label: string }[] = [
+const STREAM_OPTIONS: Array<{ value: CadetStream; label: string }> = [
   { value: "DECK", label: "Deck" },
   { value: "ENGINE", label: "Engine" },
   { value: "ETO", label: "Electro-Technical" },
 ];
 
-// Helper: parse YYYY-MM-DD into Date safely
 function parseISODate(value: string): Date | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const [y, m, d] = trimmed.split("-").map((v) => Number(v));
+  if (!value) return null;
+  const [y, m, d] = value.split("-").map((v) => Number(v));
   if (!y || !m || !d) return null;
   const date = new Date(y, m - 1, d);
-  if (Number.isNaN(date.getTime())) return null;
-  // basic sanity guard (1900–2100)
-  if (y < 1900 || y > 2100) return null;
-  return date;
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
-// Helper: auto format typed digits into YYYY-MM-DD
 function formatDobInput(raw: string): string {
-  const digits = raw.replace(/\D/g, "").slice(0, 8); // max 8 digits
-  if (digits.length <= 4) {
-    return digits; // YYYY
-  } else if (digits.length <= 6) {
-    return `${digits.slice(0, 4)}-${digits.slice(4)}`; // YYYY-MM
-  } else {
-    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`; // YYYY-MM-DD
-  }
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
 }
 
-export const CadetProfileScreen: React.FC = () => {
+  const CadetProfileScreen: React.FC = () => {
   const navigation = useNavigation<CadetProfileNav>();
 
   const [loading, setLoading] = useState(true);
@@ -94,24 +85,16 @@ export const CadetProfileScreen: React.FC = () => {
   const [form, setForm] = useState<ProfileForm>(EMPTY_PROFILE);
   const [savedForm, setSavedForm] = useState<ProfileForm>(EMPTY_PROFILE);
 
-  // DOB picker state
-  const [dobDateObj, setDobDateObj] = useState<Date>(() => {
-    return new Date(2000, 0, 1); // default
-  });
+  const [dobDateObj, setDobDateObj] = useState<Date>(new Date(2000, 0, 1));
   const [showDobPicker, setShowDobPicker] = useState(false);
 
-  // ---- Load from DB on mount ----
+  // Load profile from SQLite
   useEffect(() => {
     let mounted = true;
-
     const load = async () => {
       try {
         const rows = await getAll<any>(
-          `
-          SELECT *
-          FROM cadet_profile
-          WHERE id = ?;
-        `,
+          `SELECT * FROM cadet_profile WHERE id = ?;`,
           [CURRENT_CADET_ID]
         );
 
@@ -122,7 +105,7 @@ export const CadetProfileScreen: React.FC = () => {
           const loaded: ProfileForm = {
             fullName: row.full_name ?? "",
             dateOfBirth: row.date_of_birth ?? "",
-            stream: (row.stream as CadetStream) || "DECK",
+            stream: row.stream ?? "DECK",
             dischargeBookNo: row.discharge_book_no ?? "",
             passportNo: row.passport_no ?? "",
             academyName: row.academy_name ?? "",
@@ -130,23 +113,21 @@ export const CadetProfileScreen: React.FC = () => {
             nextOfKinName: row.next_of_kin_name ?? "",
             nextOfKinContact: row.next_of_kin_contact ?? "",
           };
+
           setForm(loaded);
           setSavedForm(loaded);
           setHasExisting(true);
+          setIsEditing(false);
 
-          if (loaded.dateOfBirth) {
-            const parsed = parseISODate(loaded.dateOfBirth);
-            if (parsed) setDobDateObj(parsed);
-          }
-          setIsEditing(false); // view mode
+          const parsed = parseISODate(loaded.dateOfBirth);
+          if (parsed) setDobDateObj(parsed);
         } else {
           setForm(EMPTY_PROFILE);
           setSavedForm(EMPTY_PROFILE);
           setHasExisting(false);
-          setIsEditing(true); // no profile yet → start in edit mode
+          setIsEditing(true); // No record → edit mode
         }
       } catch (err) {
-        console.error("Error loading cadet profile", err);
         Alert.alert("Error", "Could not load cadet profile.");
       } finally {
         if (mounted) setLoading(false);
@@ -159,95 +140,51 @@ export const CadetProfileScreen: React.FC = () => {
     };
   }, []);
 
-  // ---- Helpers & handlers ----
-
   const updateField = <K extends keyof ProfileForm>(
     key: K,
     value: ProfileForm[K]
   ) => {
-    setForm((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
-  const handleClose = () => {
-    navigation.goBack();
+    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleToggleEdit = () => {
     if (!isEditing) {
       setIsEditing(true);
     } else {
-      // cancel edit → revert to last saved snapshot
       setForm(savedForm);
-      if (savedForm.dateOfBirth) {
-        const parsed = parseISODate(savedForm.dateOfBirth);
-        if (parsed) setDobDateObj(parsed);
-      }
+      const parsed = parseISODate(savedForm.dateOfBirth);
+      if (parsed) setDobDateObj(parsed);
       setIsEditing(false);
     }
   };
 
-  // When user types DOB manually
   const handleDobTextChange = (text: string) => {
     if (!isEditing) return;
     const formatted = formatDobInput(text);
     updateField("dateOfBirth", formatted);
-
-    // if full YYYY-MM-DD and valid, sync dateObj
-    const parts = formatted.split("-");
-    if (parts.length === 3 && parts[0].length === 4 && parts[1].length === 2 && parts[2].length === 2) {
-      const parsed = parseISODate(formatted);
-      if (parsed) {
-        setDobDateObj(parsed);
-      }
-    }
   };
 
-  // When user leaves the DOB field
   const handleDobBlur = () => {
     if (!form.dateOfBirth) return;
     const parsed = parseISODate(form.dateOfBirth);
     if (!parsed) {
-      Alert.alert(
-        "Invalid date",
-        "Please enter a valid date in YYYY-MM-DD format (e.g. 2001-09-15)."
-      );
+      Alert.alert("Invalid date", "Use YYYY-MM-DD format.");
       updateField("dateOfBirth", "");
-      return;
-    }
-    setDobDateObj(parsed);
+    } else setDobDateObj(parsed);
   };
 
-  // When user uses the native picker
-  const onDobPickerChange = (_event: any, selected?: Date | undefined) => {
-    if (Platform.OS !== "ios") {
-      setShowDobPicker(false);
-    }
+  const onDobPickerChange = (_event: any, selected?: Date) => {
+    if (Platform.OS !== "ios") setShowDobPicker(false);
     if (selected) {
       setDobDateObj(selected);
-      const iso = selected.toISOString().slice(0, 10); // YYYY-MM-DD
-      updateField("dateOfBirth", iso);
+      updateField("dateOfBirth", selected.toISOString().slice(0, 10));
     }
   };
 
   const handleSave = async () => {
     if (!form.fullName.trim()) {
-      Alert.alert("Missing name", "Please enter the cadet's full name.");
+      Alert.alert("Missing name", "Please enter the full name.");
       return;
-    }
-
-    // Optional: validate DOB if provided
-    if (form.dateOfBirth.trim()) {
-      const parsed = parseISODate(form.dateOfBirth);
-      if (!parsed) {
-        Alert.alert(
-          "Invalid date of birth",
-          "Please fix the date of birth (YYYY-MM-DD) before saving."
-        );
-        return;
-      }
     }
 
     try {
@@ -256,64 +193,44 @@ export const CadetProfileScreen: React.FC = () => {
 
       if (hasExisting) {
         await run(
-          `
-          UPDATE cadet_profile
-          SET
-            full_name = ?,
-            date_of_birth = ?,
-            stream = ?,
-            discharge_book_no = ?,
-            passport_no = ?,
-            academy_name = ?,
-            academy_id = ?,
-            next_of_kin_name = ?,
-            next_of_kin_contact = ?,
-            updated_at = ?
-          WHERE id = ?;
-        `,
+          `UPDATE cadet_profile SET
+            full_name=?, date_of_birth=?, stream=?, discharge_book_no=?,
+            passport_no=?, academy_name=?, academy_id=?,
+            next_of_kin_name=?, next_of_kin_contact=?, updated_at=?
+          WHERE id=?`,
           [
-            form.fullName.trim(),
-            form.dateOfBirth.trim() || null,
+            form.fullName,
+            form.dateOfBirth || null,
             form.stream,
-            form.dischargeBookNo.trim() || null,
-            form.passportNo.trim() || null,
-            form.academyName.trim() || null,
-            form.academyId.trim() || null,
-            form.nextOfKinName.trim() || null,
-            form.nextOfKinContact.trim() || null,
+            form.dischargeBookNo || null,
+            form.passportNo || null,
+            form.academyName || null,
+            form.academyId || null,
+            form.nextOfKinName || null,
+            form.nextOfKinContact || null,
             now,
             CURRENT_CADET_ID,
           ]
         );
       } else {
         await run(
-          `
-          INSERT INTO cadet_profile (
-            id,
-            full_name,
-            date_of_birth,
-            stream,
-            discharge_book_no,
-            passport_no,
-            academy_name,
-            academy_id,
-            next_of_kin_name,
-            next_of_kin_contact,
-            created_at,
-            updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-        `,
+          `INSERT INTO cadet_profile (
+            id, full_name, date_of_birth, stream,
+            discharge_book_no, passport_no, academy_name,
+            academy_id, next_of_kin_name, next_of_kin_contact,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             CURRENT_CADET_ID,
-            form.fullName.trim(),
-            form.dateOfBirth.trim() || null,
+            form.fullName,
+            form.dateOfBirth || null,
             form.stream,
-            form.dischargeBookNo.trim() || null,
-            form.passportNo.trim() || null,
-            form.academyName.trim() || null,
-            form.academyId.trim() || null,
-            form.nextOfKinName.trim() || null,
-            form.nextOfKinContact.trim() || null,
+            form.dischargeBookNo || null,
+            form.passportNo || null,
+            form.academyName || null,
+            form.academyId || null,
+            form.nextOfKinName || null,
+            form.nextOfKinContact || null,
             now,
             now,
           ]
@@ -323,105 +240,71 @@ export const CadetProfileScreen: React.FC = () => {
 
       setSavedForm(form);
       setIsEditing(false);
-      Alert.alert("Saved", "Cadet profile updated.");
+      Alert.alert("Saved", "Profile updated.");
     } catch (err) {
-      console.error("Error saving cadet profile", err);
-      Alert.alert("Error", "Could not save cadet profile.");
+      Alert.alert("Error", "Could not save profile.");
     } finally {
       setSaving(false);
     }
   };
 
-  // ---- Render ----
-
   if (loading) {
     return (
       <View style={styles.loadingRoot}>
         <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>Loading cadet profile…</Text>
+        <Text style={styles.loadingText}>Loading profile…</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.root}>
-      {/* Modal header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.headerIconLeft}
-          onPress={handleClose}
-        >
-          <Feather name="x" size={20} color={COLORS.textOnPrimary} />
-        </TouchableOpacity>
+      {/* NEW: Consistent TRB Header */}
+      <TRBHeader
+        title="Cadet Profile"
+        subtitle={isEditing ? "Editing personal details" : "View stored TRB details"}
+      />
 
-        <View style={styles.headerTitles}>
-          <Text style={styles.headerTitle}>Cadet profile</Text>
-          <Text style={styles.headerSubtitle}>
-            {isEditing
-              ? "Editing personal and academy details"
-              : "View your stored TRB identity details"}
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.headerIconRight}
-          onPress={handleToggleEdit}
-        >
-          <Feather
-            name="edit-2"
-            size={18}
-            color={COLORS.textOnPrimary}
-          />
-        </TouchableOpacity>
-      </View>
-
-      {/* Modal content */}
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Personal details</Text>
+          <View style={styles.editRow}>
+            <Text style={styles.sectionTitle}>Personal Details</Text>
+            <TouchableOpacity onPress={handleToggleEdit}>
+              <Feather
+                name="edit-2"
+                size={16}
+                color={COLORS.primary}
+              />
+            </TouchableOpacity>
+          </View>
 
-          <Text style={styles.label}>Full name</Text>
+          {/* Full Name */}
+          <Text style={styles.label}>Full Name</Text>
           <TextInput
             style={[styles.input, !isEditing && styles.inputReadonly]}
             editable={isEditing}
-            placeholder="e.g. John Stuart"
-            placeholderTextColor={COLORS.textMuted}
             value={form.fullName}
-            onChangeText={(text) => updateField("fullName", text)}
+            onChangeText={(t) => updateField("fullName", t)}
           />
 
-          <Text style={styles.label}>Date of birth</Text>
+          {/* DOB */}
+          <Text style={styles.label}>Date of Birth</Text>
           <View style={styles.dobRow}>
             <TextInput
-              style={[
-                styles.input,
-                styles.dobInput,
-                !isEditing && styles.inputReadonly,
-              ]}
+              style={[styles.input, styles.flex1, !isEditing && styles.inputReadonly]}
               editable={isEditing}
               keyboardType="number-pad"
               placeholder="YYYY-MM-DD"
-              placeholderTextColor={COLORS.textMuted}
               value={form.dateOfBirth}
               onChangeText={handleDobTextChange}
               onBlur={handleDobBlur}
             />
             <TouchableOpacity
-              style={[
-                styles.dobIconButton,
-                !isEditing && styles.dobIconButtonDisabled,
-              ]}
-              activeOpacity={isEditing ? 0.8 : 1}
-              onPress={() => {
-                if (!isEditing) return;
-                setShowDobPicker(true);
-              }}
+              style={styles.dobIcon}
+              disabled={!isEditing}
+              onPress={() => isEditing && setShowDobPicker(true)}
             >
-              <Feather
-                name="calendar"
-                size={18}
-                color={COLORS.textOnDark}
-              />
+              <Feather name="calendar" size={18} color={COLORS.textOnDark} />
             </TouchableOpacity>
           </View>
 
@@ -434,123 +317,107 @@ export const CadetProfileScreen: React.FC = () => {
             />
           )}
 
-          <Text style={styles.label}>Stream</Text>
+          {/* Stream */}
+          <Text style={styles.sectionTitle}>Stream</Text>
           <View style={styles.streamRow}>
-            {STREAM_OPTIONS.map((opt) => {
-              const active = form.stream === opt.value;
-              return (
-                <TouchableOpacity
-                  key={opt.value}
+            {STREAM_OPTIONS.map((opt) => (
+              <TouchableOpacity
+                key={opt.value}
+                style={[
+                  styles.streamChip,
+                  form.stream === opt.value && styles.streamActive,
+                ]}
+                disabled={!isEditing}
+                onPress={() => updateField("stream", opt.value)}
+              >
+                <Text
                   style={[
-                    styles.streamChip,
-                    active && styles.streamChipActive,
-                    !isEditing && styles.streamChipDisabled,
+                    styles.streamChipText,
+                    form.stream === opt.value && styles.streamChipTextActive,
                   ]}
-                  activeOpacity={isEditing ? 0.8 : 1}
-                  onPress={() => {
-                    if (!isEditing) return;
-                    updateField("stream", opt.value);
-                  }}
                 >
-                  <Text
-                    style={[
-                      styles.streamChipText,
-                      active && styles.streamChipTextActive,
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
+          {/* Documents */}
           <Text style={styles.sectionTitle}>Documents</Text>
 
-          <Text style={styles.label}>Discharge book number</Text>
+          <Text style={styles.label}>Discharge Book No.</Text>
           <TextInput
             style={[styles.input, !isEditing && styles.inputReadonly]}
             editable={isEditing}
-            placeholder="e.g. MUM123456"
-            placeholderTextColor={COLORS.textMuted}
             value={form.dischargeBookNo}
-            onChangeText={(text) => updateField("dischargeBookNo", text)}
+            onChangeText={(t) => updateField("dischargeBookNo", t)}
           />
 
-          <Text style={styles.label}>Passport number</Text>
+          <Text style={styles.label}>Passport No.</Text>
           <TextInput
             style={[styles.input, !isEditing && styles.inputReadonly]}
             editable={isEditing}
-            placeholder="e.g. Z1234567"
-            placeholderTextColor={COLORS.textMuted}
             value={form.passportNo}
-            onChangeText={(text) => updateField("passportNo", text)}
+            onChangeText={(t) => updateField("passportNo", t)}
           />
 
+          {/* Academy */}
           <Text style={styles.sectionTitle}>Academy / Institute</Text>
 
-          <Text style={styles.label}>Academy name</Text>
+          <Text style={styles.label}>Academy Name</Text>
           <TextInput
             style={[styles.input, !isEditing && styles.inputReadonly]}
             editable={isEditing}
-            placeholder="e.g. Tolani Maritime Institute"
-            placeholderTextColor={COLORS.textMuted}
             value={form.academyName}
-            onChangeText={(text) => updateField("academyName", text)}
+            onChangeText={(t) => updateField("academyName", t)}
           />
 
-          <Text style={styles.label}>Academy ID / roll no.</Text>
+          <Text style={styles.label}>Academy ID</Text>
           <TextInput
             style={[styles.input, !isEditing && styles.inputReadonly]}
             editable={isEditing}
-            placeholder="e.g. TMI-2025-1234"
-            placeholderTextColor={COLORS.textMuted}
             value={form.academyId}
-            onChangeText={(text) => updateField("academyId", text)}
+            onChangeText={(t) => updateField("academyId", t)}
           />
 
-          <Text style={styles.sectionTitle}>Emergency contact</Text>
+          {/* Next of kin */}
+          <Text style={styles.sectionTitle}>Emergency Contact</Text>
 
-          <Text style={styles.label}>Next of kin name</Text>
+          <Text style={styles.label}>Next of Kin Name</Text>
           <TextInput
             style={[styles.input, !isEditing && styles.inputReadonly]}
             editable={isEditing}
-            placeholder="e.g. Maria Stuart"
-            placeholderTextColor={COLORS.textMuted}
             value={form.nextOfKinName}
-            onChangeText={(text) => updateField("nextOfKinName", text)}
+            onChangeText={(t) => updateField("nextOfKinName", t)}
           />
 
-          <Text style={styles.label}>Next of kin contact</Text>
+          <Text style={styles.label}>Next of Kin Contact</Text>
           <TextInput
             style={[styles.input, !isEditing && styles.inputReadonly]}
             editable={isEditing}
-            placeholder="Phone / email"
-            placeholderTextColor={COLORS.textMuted}
             value={form.nextOfKinContact}
-            onChangeText={(text) => updateField("nextOfKinContact", text)}
+            onChangeText={(t) => updateField("nextOfKinContact", t)}
           />
-        </View>
 
-        {isEditing && (
-          <View style={styles.footerActions}>
+          {/* Save button */}
+          {isEditing && (
             <TouchableOpacity
               style={styles.saveButton}
               onPress={handleSave}
               disabled={saving}
             >
               <Text style={styles.saveButtonText}>
-                {saving ? "Saving…" : "Save profile"}
+                {saving ? "Saving…" : "Save Profile"}
               </Text>
             </TouchableOpacity>
-          </View>
-        )}
+          )}
+        </View>
       </ScrollView>
     </View>
   );
 };
 
-// ---- Styles ----
+// ------------------ Styles ------------------ //
 
 const styles = StyleSheet.create({
   root: {
@@ -561,77 +428,43 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: COLORS.background,
   },
   loadingText: {
     marginTop: 8,
     fontSize: 13,
     color: COLORS.textMuted,
   },
-  header: {
-    paddingTop: Platform.OS === "android" ? 40 : 20,
-    paddingBottom: 12,
-    paddingHorizontal: 24,
-    backgroundColor: COLORS.primary,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  headerIconLeft: {
-    padding: 6,
-    marginRight: 8,
-  },
-  headerIconRight: {
-    padding: 6,
-    marginLeft: 8,
-  },
-  headerTitles: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: COLORS.textOnPrimary,
-  },
-  headerSubtitle: {
-    marginTop: 2,
-    fontSize: 12,
-    color: "rgba(255,255,255,0.85)",
-  },
   content: {
     paddingHorizontal: 24,
     paddingVertical: 16,
     paddingBottom: 32,
-    maxWidth: 800,
-    width: "100%",
-    alignSelf: "center",
   },
   card: {
     backgroundColor: COLORS.surface,
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 16,
+    padding: 18,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
   sectionTitle: {
+    marginTop: 12,
+    marginBottom: 6,
     fontSize: 14,
     fontWeight: "600",
     color: COLORS.textOnDark,
-    marginBottom: 8,
-    marginTop: 4,
   },
   label: {
     fontSize: 12,
-    fontWeight: "500",
     color: COLORS.textOnDark,
-    marginTop: 10,
     marginBottom: 4,
+    marginTop: 10,
   },
   input: {
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.16)",
     paddingHorizontal: 10,
-    paddingVertical: Platform.OS === "ios" ? 10 : 8,
+    paddingVertical: 8,
     fontSize: 13,
     color: COLORS.textOnDark,
     backgroundColor: "#050B16",
@@ -643,62 +476,56 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  dobInput: {
-    flex: 1,
-  },
-  dobIconButton: {
-    marginLeft: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-    padding: 8,
+  flex1: { flex: 1 },
+  dobIcon: {
+    marginLeft: 10,
+    padding: 10,
     backgroundColor: "#050B16",
-  },
-  dobIconButtonDisabled: {
-    opacity: 0.5,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.16)",
   },
   streamRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 2,
   },
   streamChip: {
     borderRadius: 999,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.25)",
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 6,
     backgroundColor: "#050B16",
   },
-  streamChipActive: {
+  streamActive: {
     borderColor: COLORS.primary,
-    backgroundColor: "rgba(49,148,160,0.16)",
-  },
-  streamChipDisabled: {
-    opacity: 0.6,
+    backgroundColor: "rgba(49,148,160,0.18)",
   },
   streamChipText: {
-    fontSize: 11,
+    fontSize: 12,
     color: COLORS.textOnDark,
   },
   streamChipTextActive: {
     color: COLORS.primary,
     fontWeight: "600",
   },
-  footerActions: {
-    marginTop: 16,
-    alignItems: "flex-end",
-  },
   saveButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    marginTop: 20,
+    paddingVertical: 12,
     borderRadius: 999,
+    alignItems: "center",
     backgroundColor: COLORS.primary,
   },
   saveButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
     color: COLORS.textOnPrimary,
+    fontWeight: "700",
+  },
+  editRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
 });
+
+export default CadetProfileScreen;

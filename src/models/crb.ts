@@ -3,6 +3,12 @@
 
 export type CadetStream = "DECK" | "ENGINE" | "ETO";
 
+// STATUS ENUM
+export type TaskStatus = "PENDING" | "SUBMITTED" | "VERIFIED" | "APPROVED";
+
+
+
+
 export type CadetProfile = {
   id: string;
   fullName: string;
@@ -52,33 +58,33 @@ export type SeaServiceDeployment = {
 
 // ----- Tasks & Competence -----
 
-export type TaskStatus = "PENDING" | "SUBMITTED" | "VERIFIED" | "APPROVED";
+// export type TaskStatus = "PENDING" | "SUBMITTED" | "VERIFIED" | "APPROVED";
 
-export type TrainingTaskTemplate = {
-  id: string;
-  sectionCode: string; // e.g. "NAV", "CARGO", "SAFETY"
-  title: string;
-  description: string;
-  stream: CadetStream;
-  isMandatory: boolean;
-};
+// export type TrainingTaskTemplate = {
+//   id: string;
+//   sectionCode: string; // e.g. "NAV", "CARGO", "SAFETY"
+//   title: string;
+//   description: string;
+//   stream: CadetStream;
+//   isMandatory: boolean;
+// };
 
-export type TrainingTaskProgress = {
-  id: string;
-  cadetId: string;
-  templateId: string;
-  status: TaskStatus;
-  lastStatusChangeAt?: string;
-  reflectionText?: string;
-  verifiedById?: string;
-  verifiedByName?: string;
-  verifiedAt?: string;
-  approvedByMasterId?: string;
-  approvedByMasterName?: string;
-  approvedAt?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
+// export type TrainingTaskProgress = {
+//   id: string;
+//   cadetId: string;
+//   templateId: string;
+//   status: TaskStatus;
+//   lastStatusChangeAt?: string;
+//   reflectionText?: string;
+//   verifiedById?: string;
+//   verifiedByName?: string;
+//   verifiedAt?: string;
+//   approvedByMasterId?: string;
+//   approvedByMasterName?: string;
+//   approvedAt?: string;
+//   createdAt?: string;
+//   updatedAt?: string;
+// };
 
 export type TrainingTaskWithProgress = {
   template: TrainingTaskTemplate;
@@ -107,6 +113,36 @@ export type DiaryEntry = {
   steeringMinutes?: number;
   machineryMonitored?: string;
   remarks?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+// ---- Tasks & Competence (Training Record Book) ----
+
+
+
+export type TrainingTaskTemplate = {
+  id: string;
+  sectionCode: string;
+  title: string;
+  description: string;
+  stream: CadetStream; // "DECK" | "ENGINE" | "ETO"
+  isMandatory: boolean;
+};
+
+export type TrainingTaskProgress = {
+  id: string;
+  cadetId: string;
+  templateId: string;
+  status: TaskStatus;
+  lastStatusChangeAt?: string;
+  reflectionText?: string;
+  verifiedById?: string;
+  verifiedByName?: string;
+  verifiedAt?: string;
+  approvedByMasterId?: string;
+  approvedByMasterName?: string;
+  approvedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 };

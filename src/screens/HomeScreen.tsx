@@ -13,21 +13,24 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { COLORS } from "../../theme";
 import { ActionCard } from "../components/ActionCard";
 import type { RootStackParamList } from "../navigation/RootNavigator";
+import TRBHeader from "../components/TRBHeader";
 
 type HomeNavProp = NativeStackNavigationProp<RootStackParamList, "Home">;
 
-export const HomeScreen: React.FC = () => {
+  const HomeScreen: React.FC = () => {
   const navigation = useNavigation<HomeNavProp>();
 
   return (
     <View style={styles.root}>
-      {/* Top header bar with primary brand color */}
-      <View style={styles.header}>
-        <Text style={styles.appTitle}>Cadet TRB</Text>
-        <Text style={styles.appSubtitle}>Cadet Training Record Book</Text>
-      </View>
+      {/* NEW: Global TRB Header (no double headers) */}
+      <TRBHeader
+        title="Cadet TRB"
+        subtitle="Training Record Book Dashboard"
+        showBack={false}
+        showHome={false}
+      />
 
-      {/* Scrollable content area */}
+      {/* Scrollable content */}
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.welcome}>Welcome, Cadet</Text>
         <Text style={styles.description}>
@@ -35,26 +38,32 @@ export const HomeScreen: React.FC = () => {
           sea service, tasks, watchkeeping and reviews.
         </Text>
 
-        {/* Quick actions stacked vertically */}
+        {/* Quick Actions */}
         <View style={styles.actionsColumn}>
           <ActionCard
             title="(1) Sea Service"
             description="View and record sign-on / sign-off and voyage details."
             onPress={() => navigation.navigate("SeaService")}
           />
+
           <View style={styles.actionGap} />
+
           <ActionCard
             title="(2) Tasks & Competence"
             description="Complete mandatory training tasks and request sign-off."
             onPress={() => navigation.navigate("Tasks")}
           />
+
           <View style={styles.actionGap} />
+
           <ActionCard
             title="(3) Diary & Watchkeeping"
             description="Log daily activities and bridge/engine watches."
             onPress={() => navigation.navigate("Diary")}
           />
+
           <View style={styles.actionGap} />
+
           <ActionCard
             title="(4) Cadet Profile"
             description="Maintain your personal and academy details for the TRB."
@@ -62,13 +71,13 @@ export const HomeScreen: React.FC = () => {
           />
         </View>
 
-        {/* Info card, same width as action cards */}
+        {/* Info Card */}
         <View style={styles.placeholderCard}>
           <Text style={styles.cardTitle}>Next Steps</Text>
           <Text style={styles.cardText}>
-            • We will add evidence & signatures to tasks{"\n"}
-            • Then we will add officer / Master review workflows{"\n"}
-            • Finally, we will plug in cloud sync and PDF export
+            • Add evidence & signatures to tasks{"\n"}
+            • Add officer / Master review workflows{"\n"}
+            • Add cloud sync and PDF export{"\n"}
           </Text>
         </View>
 
@@ -86,27 +95,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  header: {
-    paddingTop: Platform.OS === "android" ? 40 : 20,
-    paddingBottom: 16,
-    paddingHorizontal: 24,
-    backgroundColor: COLORS.primary,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(0,0,0,0.15)",
-  },
-  appTitle: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: COLORS.textOnPrimary,
-  },
-  appSubtitle: {
-    marginTop: 4,
-    fontSize: 14,
-    color: "rgba(255,255,255,0.85)",
-  },
   content: {
     paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingTop: 16,
     paddingBottom: 40,
     maxWidth: 900,
     width: "100%",
@@ -137,7 +128,6 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    // No maxWidth here – it will match the content width (like ActionCards)
     marginBottom: 12,
   },
   cardTitle: {
@@ -157,3 +147,5 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
   },
 });
+
+export default HomeScreen;

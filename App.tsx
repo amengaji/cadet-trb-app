@@ -4,7 +4,7 @@ import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer } from "@react-navigation/native";
 
-import { RootNavigator } from "./src/navigation/RootNavigator";
+import  RootNavigator  from "./src/navigation/RootNavigator";
 import { initDatabase } from "./src/db/sqlite";
 import { COLORS } from "./theme";
 

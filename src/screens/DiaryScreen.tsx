@@ -7,18 +7,22 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
   Alert,
+  TextInput,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { Feather } from '@expo/vector-icons';
+import { Feather } from "@expo/vector-icons";
+
 import { COLORS } from "../../theme";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { getAll, run } from "../db/sqlite";
 import type { DiaryEntry, DiaryEntryType } from "../models/crb";
+import TRBHeader from "../components/TRBHeader";
+import HomeScreen from "./HomeScreen";
+
 
 type DiaryNavProp = NativeStackNavigationProp<RootStackParamList, "Diary">;
 
@@ -39,7 +43,7 @@ const FILTER_LABEL: Record<TypeFilter, string> = {
   ENGINE: "Engine",
 };
 
-export const DiaryScreen: React.FC = () => {
+  const DiaryScreen: React.FC = () => {
   const navigation = useNavigation<DiaryNavProp>();
 
   const [loading, setLoading] = useState(true);
@@ -53,10 +57,14 @@ export const DiaryScreen: React.FC = () => {
 
   const [newType, setNewType] = useState<DiaryEntryType>("DAILY");
 
-  // Date + picker
+  // Date (ISO for DB) + display text + picker
   const [newDate, setNewDate] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
+  const [dateInput, setDateInput] = useState(() =>
+    formatIsoToDisplay(new Date().toISOString().slice(0, 10))
+  );
+  const [dateError, setDateError] = useState<string | null>(null);
   const [dateObj, setDateObj] = useState<Date>(() => new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -172,6 +180,41 @@ export const DiaryScreen: React.FC = () => {
       setDateObj(selectedDate);
       const iso = selectedDate.toISOString().slice(0, 10);
       setNewDate(iso);
+      setDateInput(formatIsoToDisplay(iso));
+      setDateError(null);
+    }
+  };
+
+  const handleDateTextChange = (text: string) => {
+    const digits = text.replace(/\D/g, "").slice(0, 8); // DDMMYYYY
+    let formatted = digits;
+
+    if (digits.length > 2 && digits.length <= 4) {
+      formatted = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    } else if (digits.length > 4) {
+      formatted = `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(
+        4
+      )}`;
+    }
+
+    setDateInput(formatted);
+    setDateError(null);
+
+    if (digits.length === 8) {
+      const dd = Number(digits.slice(0, 2));
+      const mm = Number(digits.slice(2, 4));
+      const yyyy = Number(digits.slice(4));
+
+      const parsed = parseDisplayDate(dd, mm, yyyy);
+      if (!parsed) {
+        setDateError("Invalid date");
+        return;
+      }
+
+      const iso = toIsoFromParts(dd, mm, yyyy);
+      setNewDate(iso);
+      setDateObj(parsed);
+      setDateError(null);
     }
   };
 
@@ -202,6 +245,9 @@ export const DiaryScreen: React.FC = () => {
 
     setNewType(entry.entryType);
     setNewDate(entry.date);
+    setDateInput(formatIsoToDisplay(entry.date));
+    setDateError(null);
+
     const parsedDate = new Date(entry.date);
     if (!Number.isNaN(parsedDate.getTime())) {
       setDateObj(parsedDate);
@@ -279,6 +325,7 @@ export const DiaryScreen: React.FC = () => {
     setLatHem("N");
     setLonBody("");
     setLonHem("E");
+    setDateError(null);
   };
 
   // ----- Save (insert or update) -----
@@ -482,7 +529,7 @@ export const DiaryScreen: React.FC = () => {
 
       setEditingEntry(null);
 
-      // Reset form (keep date & type for convenience)
+      // Reset non-date fields (keep type + date for convenience)
       setNewTimeStart("");
       setNewTimeEnd("");
       setTimeStartObj(null);
@@ -499,6 +546,7 @@ export const DiaryScreen: React.FC = () => {
       setLatHem("N");
       setLonBody("");
       setLonHem("E");
+      setDateError(null);
 
       Alert.alert(
         "Saved",
@@ -519,18 +567,10 @@ export const DiaryScreen: React.FC = () => {
 
   return (
     <View style={styles.root}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={handleBack} style={styles.backButton}>
-          <Text style={styles.backArrow}>←</Text>
-          <Text style={styles.backText}>Home</Text>
-        </TouchableOpacity>
-
-        <View style={styles.headerTitles}>
-          <Text style={styles.appTitle}>Cadet TRB</Text>
-          <Text style={styles.appSubtitle}>Diary & Watchkeeping</Text>
-        </View>
-      </View>
+      <TRBHeader
+        title="Diary & Watchkeeping"
+        subtitle="Daily logs, bridge & engine watch entries"
+      />
 
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -590,16 +630,33 @@ export const DiaryScreen: React.FC = () => {
 
           {/* New / edit entry form */}
           <View style={styles.card}>
-            {/* Date with native picker */}
+            {/* Date with profile-style input + picker */}
             <Text style={styles.label}>Date</Text>
-            <TouchableOpacity
-              style={styles.dateButton}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={styles.dateButtonText}>
-                {newDate || "Select date"}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.dateRow}>
+              <TextInput
+                style={[
+                  styles.dateTextInput,
+                  dateError && styles.inputErrorBorder,
+                ]}
+                placeholder="DD-MM-YYYY"
+                placeholderTextColor={COLORS.textMuted}
+                keyboardType="numeric"
+                value={dateInput}
+                onChangeText={handleDateTextChange}
+                maxLength={10}
+              />
+              <TouchableOpacity
+                style={styles.calendarButton}
+                onPress={() => setShowDatePicker(true)}
+              >
+                <Feather
+                  name="calendar"
+                  size={16}
+                  color={COLORS.textOnDark}
+                />
+              </TouchableOpacity>
+            </View>
+            {dateError && <Text style={styles.errorText}>{dateError}</Text>}
             {showDatePicker && (
               <DateTimePicker
                 value={dateObj}
@@ -970,7 +1027,9 @@ const DiaryEntryCard: React.FC<DiaryEntryCardProps> = ({
     <View style={styles.entryCard}>
       <View style={styles.entryHeaderRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.entryDate}>{entry.date}</Text>
+          <Text style={styles.entryDate}>
+            {formatIsoToDisplay(entry.date)}
+          </Text>
           <Text style={styles.entryTitle}>{typeLabel}</Text>
         </View>
         <View
@@ -1037,8 +1096,6 @@ const DiaryEntryCard: React.FC<DiaryEntryCardProps> = ({
           <Feather name="edit-2" size={14} color={COLORS.textOnDark} />
         </TouchableOpacity>
       </View>
-
-      
     </View>
   );
 };
@@ -1097,6 +1154,43 @@ function estimateHours(start?: string, end?: string): number {
 
   const diffMin = endMin - startMin;
   return diffMin / 60;
+}
+
+// ---- Date helpers (profile-style) ----
+
+function formatIsoToDisplay(iso: string | undefined | null): string {
+  if (!iso) return "";
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  const [yyyy, mm, dd] = parts;
+  return `${dd}-${mm}-${yyyy}`;
+}
+
+function toIsoFromParts(dd: number, mm: number, yyyy: number): string {
+  const d = dd.toString().padStart(2, "0");
+  const m = mm.toString().padStart(2, "0");
+  const y = yyyy.toString().padStart(4, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function parseDisplayDate(
+  dd: number,
+  mm: number,
+  yyyy: number
+): Date | null {
+  if (dd < 1 || dd > 31) return null;
+  if (mm < 1 || mm > 12) return null;
+  if (yyyy < 1900 || yyyy > 2100) return null;
+
+  const d = new Date(yyyy, mm - 1, dd);
+  if (
+    d.getFullYear() !== yyyy ||
+    d.getMonth() !== mm - 1 ||
+    d.getDate() !== dd
+  ) {
+    return null;
+  }
+  return d;
 }
 
 // ---- Lat / Lon helpers ----
@@ -1281,44 +1375,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  header: {
-    paddingTop: Platform.OS === "android" ? 40 : 20,
-    paddingBottom: 12,
-    paddingHorizontal: 24,
-    backgroundColor: COLORS.primary,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "rgba(0,0,0,0.15)",
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 4,
-    paddingRight: 16,
-  },
-  backArrow: {
-    fontSize: 18,
-    color: COLORS.textOnPrimary,
-    marginRight: 4,
-  },
-  backText: {
-    fontSize: 14,
-    color: COLORS.textOnPrimary,
-  },
-  headerTitles: {
-    flex: 1,
-  },
-  appTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: COLORS.textOnPrimary,
-  },
-  appSubtitle: {
-    marginTop: 2,
-    fontSize: 13,
-    color: "rgba(255,255,255,0.85)",
-  },
+
+  
   loadingContainer: {
     flex: 1,
     alignItems: "center",
@@ -1506,6 +1564,39 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.textOnDark,
   },
+  // New: profile-style date row
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  dateTextInput: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    paddingHorizontal: 10,
+    paddingVertical: Platform.OS === "ios" ? 10 : 6,
+    fontSize: 13,
+    color: COLORS.textOnDark,
+    backgroundColor: "#050B16",
+  },
+  calendarButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.24)",
+    backgroundColor: "#050B16",
+  },
+  inputErrorBorder: {
+    borderColor: "#ff6b6b",
+  },
+  errorText: {
+    marginTop: 2,
+    fontSize: 11,
+    color: "#ff6b6b",
+  },
   hemisphereToggle: {
     flexDirection: "row",
     alignItems: "center",
@@ -1625,8 +1716,5 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.25)",
   },
-  entryEditButtonText: {
-    fontSize: 11,
-    color: COLORS.textOnDark,
-  },
 });
+export default HomeScreen;

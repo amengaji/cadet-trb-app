@@ -150,6 +150,105 @@ export async function initDatabase(): Promise<void> {
   console.log("SQLite tables are ready (cadet_trb.db)");
 }
 
+// --- One-time seeding for training_task_template ---
+//
+// This gives a new install some realistic Deck cadet tasks to work with.
+// Safe to call many times: if the table already has rows, it does nothing.
+
+export async function ensureDefaultTaskTemplatesSeeded(): Promise<void> {
+  try {
+    const rows = await getAll<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM training_task_template;`,
+      []
+    );
+    const count = rows[0]?.count ?? 0;
+    if (count > 0) {
+      // Already seeded
+      return;
+    }
+  } catch (error) {
+    console.warn(
+      "Could not check training_task_template count – will still try to seed.",
+      error
+    );
+  }
+
+  const templates = [
+    {
+      id: "TASK-0001",
+      section_code: "1.1",
+      title: "Muster list & emergency duties",
+      description:
+        "Locate the muster list, identify your emergency station and describe your duties for fire and abandon ship.",
+      stream: "DECK",
+      is_mandatory: 1,
+    },
+    {
+      id: "TASK-0002",
+      section_code: "1.2",
+      title: "Personal lifesaving appliances",
+      description:
+        "Inspect a lifejacket and immersion suit, check condition and explain correct donning procedure.",
+      stream: "DECK",
+      is_mandatory: 1,
+    },
+    {
+      id: "TASK-0003",
+      section_code: "2.1",
+      title: "Bridge familiarisation",
+      description:
+        "Identify main bridge equipment (radar, ECDIS, autopilot, compass) and explain their basic use.",
+      stream: "DECK",
+      is_mandatory: 1,
+    },
+    {
+      id: "TASK-0004",
+      section_code: "2.2",
+      title: "Lookout duties",
+      description:
+        "Perform lookout duties during a sea watch under supervision, reporting targets and lights correctly.",
+      stream: "DECK",
+      is_mandatory: 1,
+    },
+    {
+      id: "TASK-0005",
+      section_code: "3.1",
+      title: "Mooring station safety",
+      description:
+        "Attend a mooring operation, identify snap-back zones and describe safe positioning on deck.",
+      stream: "DECK",
+      is_mandatory: 1,
+    },
+  ] as const;
+
+  for (const t of templates) {
+    await run(
+      `
+      INSERT INTO training_task_template (
+        id,
+        section_code,
+        title,
+        description,
+        stream,
+        is_mandatory
+      ) VALUES (?, ?, ?, ?, ?, ?);
+    `,
+      [
+        t.id,
+        t.section_code,
+        t.title,
+        t.description,
+        t.stream,
+        t.is_mandatory,
+      ]
+    );
+  }
+
+  console.log("Seeded default training_task_template rows");
+}
+
+
+
 /**
  * Run a non-SELECT statement (INSERT/UPDATE/DELETE).
  */
